@@ -99,6 +99,9 @@
   .news-ticker-window { min-width:0; flex:1; overflow:hidden; white-space:nowrap; }
   .news-ticker-text { display:inline-block; min-width:100%; white-space:nowrap; font-size:13px; font-weight:650; animation:newsTickerMove 30s linear infinite; }
   .news-ticker-link:hover .news-ticker-text { animation-play-state:paused; }
+  /* 第3段階: 市場停止中・非表示中は不要なアニメーションを止める */
+  body:not([data-market-running="true"]) .news-ticker-text { animation:none; }
+  body:not([data-market-running="true"]) .phase.live i { animation:none; }
   @keyframes newsTickerMove { 0% { transform:translateX(0%); } 100% { transform:translateX(-100%); } }
   .news-page { display:grid; gap:12px; min-width:0; }
   .news-controls { padding:14px 16px; display:grid; gap:14px; }
@@ -722,6 +725,12 @@ body[data-page="heatmap"] .mob-fab { bottom: calc(var(--nav-h) + var(--safe-b) +
   color: var(--ink); font: 700 14px var(--font-body); text-decoration: none; text-align: center;
 }
 .mob-sheet-panel a[aria-current="page"] { border-color: var(--accent); background: var(--accent-soft); }
+.mob-sheet-panel { max-height:calc(100dvh - var(--nav-h) - var(--safe-b) - 16px); overflow-y:auto; }
+.mob-power-option { grid-column:1/-1; display:flex; align-items:center; gap:10px; min-height:54px; padding:9px 12px; border:1px solid var(--line-strong); border-radius:12px; background:var(--bg); color:var(--ink); cursor:pointer; }
+.mob-power-option input { flex:none; width:21px; height:21px; accent-color:var(--accent); }
+.mob-power-option span { display:grid; gap:3px; min-width:0; }
+.mob-power-option strong { font-size:13px; line-height:1.4; }
+.mob-power-option small { font-size:11px; line-height:1.4; color:var(--muted); }
 
 /* ---- 横持ち ---- */
 @media (orientation: landscape) and (max-height: 520px) {
@@ -5212,7 +5221,7 @@ class Account {
     const box = canvas.parentElement.getBoundingClientRect();
     const w = Math.floor(box.width), h = Math.floor(box.height);
     if (!w || !h) return false;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
     const pixelW = Math.round(w * dpr), pixelH = Math.round(h * dpr);
     // 同じ幅・高さの代入もCanvasを再初期化するのでサイズ変更時だけ適用。
     if (canvas.width !== pixelW || canvas.height !== pixelH) {
@@ -5536,7 +5545,7 @@ class Account {
   function resize() {
     const box = $('chartbox').getBoundingClientRect();
     W = Math.floor(box.width); H = Math.floor(box.height);
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (indicators.rsi) fitIndicatorCanvas(rsiCv);
@@ -6843,7 +6852,7 @@ class Account {
     const c = $('mc');
     const w = c.clientWidth, h = c.clientHeight;
     if (!w || !h) return;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
     if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
     const g = c.getContext('2d');
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -6902,7 +6911,7 @@ class Account {
     if (!c) return;
     const w = c.clientWidth, h = c.clientHeight;
     if (!w || !h) return;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
     if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
     const g = c.getContext('2d');
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -7540,6 +7549,7 @@ class Account {
 
   /* ======== 再生 ======== */
   function syncPlayButton() {
+    document.body.dataset.marketRunning = String(running && market.phase !== 'closed' && !document.hidden);
     const b = $('play');
     if (market.phase === 'closed') {
       b.textContent = '翌営業日へ';
@@ -7549,7 +7559,10 @@ class Account {
       b.setAttribute('aria-pressed', String(running));
     }
   }
-  function setRunning(v) { running = v; syncPlayButton(); dirty = true; wakeFrame(); }
+  function setRunning(v) {
+    if (running !== v) last = performance.now();
+    running = v; syncPlayButton(); dirty = true; wakeFrame();
+  }
   function applyMonthlyAutoDeposit(previousDay, currentDay) {
     const previousDate = simDateForDay(previousDay), currentDate = simDateForDay(currentDay);
     const crossedMonth = previousDate.getUTCFullYear() !== currentDate.getUTCFullYear() || previousDate.getUTCMonth() !== currentDate.getUTCMonth();
@@ -7576,7 +7589,15 @@ class Account {
 
   const STEP_BUDGET_MS = 12;
   const CHART_FRAME_MS = 100; // 市場再生中のチャートは最大約10fps
-  const IDLE_FRAME_MS = 500;
+  const IDLE_FRAME_MS = 1500;
+  // 低速再生ではタイマーでフレーム頻度を下げ、高速再生は従来のrAFを維持。
+  function engineFrameIntervalMs(rate) {
+    if (rate <= 1) return 150;
+    if (rate <= 10) return 100;
+    if (rate <= 30) return 50;
+    if (rate <= 60) return 33;
+    return 0;
+  }
   let lastDom = 0, lastRank = 0, lastChartPaint = 0;
   let last = performance.now(), acc = 0, lastHeat = 0;
   let frameQueued = false, idleTimer = 0, chartGesture = false;
@@ -7589,8 +7610,13 @@ class Account {
     queueFrame();
   }
   function scheduleFrame() {
-    if (running && !document.hidden) queueFrame();
-    else if (!idleTimer) idleTimer = setTimeout(() => { idleTimer = 0; queueFrame(); }, IDLE_FRAME_MS);
+    if (document.hidden) {
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = 0; }
+      return;
+    }
+    const delay = running ? engineFrameIntervalMs(speed) : IDLE_FRAME_MS;
+    if (delay === 0) { queueFrame(); return; }
+    if (!idleTimer) idleTimer = setTimeout(() => { idleTimer = 0; queueFrame(); }, delay);
   }
   document.addEventListener('click', () => { if (!running) wakeFrame(); }, { passive:true });
   document.addEventListener('change', () => { if (!running) wakeFrame(); }, { passive:true });
@@ -7599,8 +7625,11 @@ class Account {
   document.addEventListener('pointermove', () => { if (page === 'chart' && dirty) { chartGesture = true; if (!running) wakeFrame(); } }, { passive:true });
   window.addEventListener('hashchange', wakeFrame);
   document.addEventListener('visibilitychange', () => {
-    last = performance.now();
-    if (!document.hidden) { dirty = true; wakeFrame(); }
+    last = performance.now(); // 背景の経過時間を市場時間へ加算しない。
+    document.body.dataset.marketRunning = String(running && market && market.phase !== 'closed' && !document.hidden);
+    if (document.hidden) {
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = 0; }
+    } else { dirty = true; wakeFrame(); }
   });
   function frame(now) {
     frameQueued = false;
@@ -7641,16 +7670,17 @@ class Account {
       if (page === 'news') renderNewsPage();
     }
     if (dirty) {
-      updateTop();
       if (page === 'chart') {
         if (!running || chartGesture || now - lastChartPaint >= CHART_FRAME_MS) {
           dirty = false; lastChartPaint = now; chartGesture = false;
+          updateTop();
           refreshDayOptions();
           if (speed < 300 || now - lastDom > 120 || !running) { lastDom = now; updateList(); updateStock(); updateHold(); }
           draw();
         }
       } else if (now - lastHeat > 200 || !running) {
         dirty = false; lastHeat = now;
+        updateTop();
         if (page === 'market') renderMarket(false);
         else if (page === 'heatmap') colorHeat();
         else if (page === 'mypage') renderMyPage();
@@ -8062,7 +8092,7 @@ class Account {
   document.querySelectorAll('.tech-item').forEach((b) => b.addEventListener('click', () => setIndicator(b.dataset.ind, !indicators[b.dataset.ind])));
   document.addEventListener('pointerdown', (e) => { if (!$('tech-panel').hidden && !e.target.closest('#tech-panel') && !e.target.closest('#tech-btn')) closeTech(); });
   window.addEventListener('hashchange', closeTech);
-  document.querySelectorAll('input[name="speed"]').forEach((e) => e.addEventListener('change', () => { if (e.checked) { speed = Number(e.value); applySpeedLimits(); } }));
+  document.querySelectorAll('input[name="speed"]').forEach((e) => e.addEventListener('change', () => { if (e.checked) { speed = Number(e.value); applySpeedLimits(); wakeFrame(); } }));
   document.querySelectorAll('input[name="tf"]').forEach((e) => e.addEventListener('change', () => {
     if (!e.checked) return;
     tf = parseTf(e.value);
