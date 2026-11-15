@@ -8285,6 +8285,20 @@ class Account {
     '<a href="#settings" data-p="settings">市場の設定・ルール</a></div>';
   document.body.appendChild(sheet);
 
+  // STEP 3: デフォルトでは画面の自動消灯を妨げない。
+  const powerRow = document.createElement('label');
+  powerRow.className = 'mob-power-option';
+  const powerCheck = document.createElement('input');
+  powerCheck.type = 'checkbox'; powerCheck.id = 'mob-keep-awake';
+  const powerCopy = document.createElement('span');
+  const powerTitle = document.createElement('strong');
+  powerTitle.textContent = '再生中に画面を消灯しない';
+  const powerNote = document.createElement('small');
+  powerNote.textContent = '通常はOFF推奨。ONは電池消費が増えます。';
+  powerCopy.appendChild(powerTitle); powerCopy.appendChild(powerNote);
+  powerRow.appendChild(powerCheck); powerRow.appendChild(powerCopy);
+  sheet.querySelector('.mob-sheet-panel').appendChild(powerRow);
+
   const fab = document.createElement('button');
   fab.type = 'button'; fab.className = 'mob-fab'; fab.id = 'mob-fab';
   fab.innerHTML = '<span id="mob-fab-i">▶</span><span id="mob-fab-t">開始</span>';
@@ -8394,16 +8408,47 @@ class Account {
   /* ---- 企業情報：スクリーニング条件は初期状態で閉じる（本体の初期化後） ---- */
   /* （スクリーニングは全画面ダイアログで開くため、条件欄の自動折りたたみは行わない） */
 
-  /* ---- 画面スリープ防止（市場の再生中のみ） ---- */
-  let lock = null;
+  /* ---- 画面スリープ防止（既定OFF、必要に応じてオン） ---- */
+  const POWER_PREF_KEY = 'kabu-screen-wakelock-enabled';
+  let keepAwake = false, lock = null, lockPending = false;
+  try { keepAwake = localStorage.getItem(POWER_PREF_KEY) === '1'; } catch (_) {}
+  powerCheck.checked = keepAwake;
+  if (!('wakeLock' in navigator)) {
+    powerCheck.disabled = true;
+    powerNote.textContent = 'このブラウザは画面スリープ防止に対応していません。';
+  }
+  const needsWakeLock = () => keepAwake && !document.hidden && play.getAttribute('aria-pressed') === 'true';
   async function wantLock() {
     if (!('wakeLock' in navigator)) return;
-    const on = play.getAttribute('aria-pressed') === 'true' && !document.hidden;
+    if (!needsWakeLock()) {
+      if (lock) {
+        const previous = lock; lock = null;
+        try { await previous.release(); } catch (_) {}
+      }
+      return;
+    }
+    if (lock || lockPending) return;
+    lockPending = true;
     try {
-      if (on && !lock) { lock = await navigator.wakeLock.request('screen'); lock.addEventListener('release', () => { lock = null; }); }
-      else if (!on && lock) { await lock.release(); lock = null; }
-    } catch (_) { lock = null; }
+      const acquired = await navigator.wakeLock.request('screen');
+      // 要求中に停止・非表示・オフになった場合は取得直後に返却する。
+      if (!needsWakeLock()) {
+        try { await acquired.release(); } catch (_) {}
+        return;
+      }
+      lock = acquired;
+      acquired.addEventListener('release', () => { if (lock === acquired) lock = null; });
+    } catch (_) {
+      lock = null;
+    } finally {
+      lockPending = false;
+    }
   }
+  powerCheck.addEventListener('change', () => {
+    keepAwake = powerCheck.checked;
+    try { localStorage.setItem(POWER_PREF_KEY, keepAwake ? '1' : '0'); } catch (_) {}
+    wantLock();
+  });
   new MutationObserver(wantLock).observe(play, { attributes: true, attributeFilter: ['aria-pressed'] });
   document.addEventListener('visibilitychange', wantLock);
 
