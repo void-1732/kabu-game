@@ -2729,6 +2729,22 @@ function cloneCreditBalances(x) { return {general:{buy:x.general.buy,sell:x.gene
 const REBUILT_CANDLES_LIMIT = 12; // 15分足の直近10営業日表示もキャッシュ内に収まる
 const rebuiltCandleCache = new Map(); // key: 過去日レコード。新規市場・復元・株式分割時に無効化
 function clearRebuiltCandleCache() { rebuiltCandleCache.clear(); }
+// STEP 4: IndexedDBと新旧JSONバックアップの分足記録を同じ型に統一する。
+function restoreHistoricalPath(path) {
+  if (path == null) return null;
+  if (path instanceof Float32Array) return path;
+  if (typeof path !== 'object') throw new Error('過去の分足データの形式が不正です。');
+  const size = typeof path.length === 'number' ? path.length : Object.keys(path).length;
+  if (size !== COARSE_N) throw new Error('過去の分足データの長さが不正です。');
+  const restored = new Float32Array(COARSE_N);
+  for (let i = 0; i < COARSE_N; i++) {
+    if (!Object.prototype.hasOwnProperty.call(path, i)) throw new Error('過去の分足データが欠損しています。');
+    const price = Number(path[i]);
+    if (!Number.isFinite(price) || price < 0) throw new Error('過去の分足データに不正な数値があります。');
+    restored[i] = price;
+  }
+  return restored;
+}
 function readRebuiltCandles(stock, rec) {
   if (rebuiltCandleCache.has(rec)) {
     const cached = rebuiltCandleCache.get(rec);
@@ -5226,8 +5242,9 @@ class Account {
     // 同じ幅・高さの代入もCanvasを再初期化するのでサイズ変更時だけ適用。
     if (canvas.width !== pixelW || canvas.height !== pixelH) {
       canvas.width = pixelW; canvas.height = pixelH;
-      canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
     }
+    // ビューポート倍率のみ変わる場合も座標変換を同期する。
+    canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
     return true;
   }
 
@@ -7827,8 +7844,16 @@ class Account {
     return new Intl.DateTimeFormat('ja-JP', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' }).format(date);
   }
 
-  let lastAutoSig = '';
-  function autoSig() { return market.day + '|' + market.sec + '|' + account.rev + '|' + account.cash + '|' + account.execs.length + '|' + account.orders.length + '|' + account.creditPositions.length; }
+  let lastAutoSig = '', uiSaveRevision = 0;
+  function autoSig() {
+    return [
+      market.day, market.sec, account.rev, account.cash, account.execs.length,
+      account.orders.length, account.creditOrders.length, account.creditPositions.length,
+      seed, scale, speed, tf, hp, heatMode, sel, viewDay,
+      indicators.bb, indicators.rsi, indicators.macd,
+      initialCapital, monthlyAutoDeposit, account.taxMode, uiSaveRevision
+    ].join('|');
+  }
   async function persistNow(manual) {
     if (!market || !account) return false;
     if (autoSaveBusy) { autoSaveQueued = true; return false; }
@@ -7857,14 +7882,21 @@ class Account {
   }
 
   function jsonSaveReplacer(key, value) {
+    // Float32Arrayのlengthは標準JSONでは失われるため、明示的に配列として保存する。
+    if (value instanceof Float32Array) return { __gmtrFloat32__: Array.from(value) };
     if (typeof value === 'number' && !Number.isFinite(value)) return { __gmtrNumber__: String(value) };
     return value;
   }
   function jsonSaveReviver(key, value) {
-    if (value && typeof value === 'object' && Object.keys(value).length === 1 && value.__gmtrNumber__) {
-      if (value.__gmtrNumber__ === 'Infinity') return Infinity;
-      if (value.__gmtrNumber__ === '-Infinity') return -Infinity;
-      if (value.__gmtrNumber__ === 'NaN') return NaN;
+    if (value && typeof value === 'object') {
+      if (Object.keys(value).length === 1 && Array.isArray(value.__gmtrFloat32__)) {
+        return restoreHistoricalPath(value.__gmtrFloat32__);
+      }
+      if (Object.keys(value).length === 1 && value.__gmtrNumber__) {
+        if (value.__gmtrNumber__ === 'Infinity') return Infinity;
+        if (value.__gmtrNumber__ === '-Infinity') return -Infinity;
+        if (value.__gmtrNumber__ === 'NaN') return NaN;
+      }
     }
     return value;
   }
@@ -7916,9 +7948,9 @@ class Account {
       const stock = Object.create(Stock.prototype);
       Object.assign(stock, raw);
       for (const day of stock.days) {
-        if (day && day.path && typeof day.path.length === 'number' && day.path.length > 0 && day.candles) {
-          day.candles = null;
-        }
+        if (!day) continue;
+        if (day.path != null) day.path = restoreHistoricalPath(day.path);
+        if (day.path && day.candles) day.candles = null;
       }
       return stock;
     });
@@ -8031,10 +8063,13 @@ class Account {
 
     // 通常操作後は少し待って保存。入力途中のフォーム操作だけでは頻繁に書き込まない。
     document.addEventListener('click', (event) => {
-      if (event.target && event.target.closest && event.target.closest('#persist-export,#persist-import-trigger')) return;
+      const target = event.target;
+      if (target && target.closest && target.closest('#persist-export,#persist-import-trigger,#persist-save-now')) return;
+      // 操作が市場時刻・口座revisionを変えない場合もあるので変更を記録する。
+      if (target && target.closest && target.closest('#page-settings,#page-order,#page-mypage,#page-history,#page-company,#page-chart')) uiSaveRevision++;
       scheduleAutoSave(4000);
     }, true);
-    document.addEventListener('change', () => scheduleAutoSave(4000), true);
+    document.addEventListener('change', () => { uiSaveRevision++; scheduleAutoSave(4000); }, true);
     document.addEventListener('visibilitychange', () => { if (document.hidden) persistNow(false); });
     window.addEventListener('pagehide', () => { persistNow(false); });
 
