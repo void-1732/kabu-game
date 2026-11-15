@@ -4640,8 +4640,8 @@ class Account {
   }
   onStep(market, wasTrading) {
     if (wasTrading) {
-      for (const o of this.orders.slice()) this.tryFill(o, market, true);
-      for (const o of this.creditOrders.slice()) this.tryFillCredit(o, market, true);
+      if (this.orders.length) for (const o of this.orders.slice()) this.tryFill(o, market, true);
+      if (this.creditOrders.length) for (const o of this.creditOrders.slice()) this.tryFillCredit(o, market, true);
     }
     this.processCreditStep(market);
     if (market.phase === 'closed') this.onCreditDayClose(market);
@@ -4759,13 +4759,13 @@ class Account {
   }
   function updateList() { /* マーケット画面は renderMarket が更新する */ }
   /* ランキング（時価総額・売買代金）を更新する。順位が入れ替わったときだけ、行を並べ替える */
-  function updateRanks() {
+  function updateRanks(renderList = true) {
     const st = market.stocks, ix = st.map((k, i) => i);
     const equityIx = ix.filter((i) => !st[i].isEtf);
     const byCap = equityIx.slice().sort((a, b) => st[b].mcap - st[a].mcap);
     capRank = new Array(st.length).fill(0);
     byCap.forEach((i, r) => { capRank[i] = r + 1; });
-    if (page === 'market') renderMarket(false);
+    if (renderList && page === 'market') renderMarket(false);
   }
 
 
@@ -5178,9 +5178,12 @@ class Account {
     const w = Math.floor(box.width), h = Math.floor(box.height);
     if (!w || !h) return false;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
-    const c = canvas.getContext('2d');
-    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const pixelW = Math.round(w * dpr), pixelH = Math.round(h * dpr);
+    // 同じ幅・高さの代入もCanvasを再初期化するのでサイズ変更時だけ適用。
+    if (canvas.width !== pixelW || canvas.height !== pixelH) {
+      canvas.width = pixelW; canvas.height = pixelH;
+      canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
     return true;
   }
 
@@ -7503,7 +7506,7 @@ class Account {
       b.setAttribute('aria-pressed', String(running));
     }
   }
-  function setRunning(v) { running = v; syncPlayButton(); dirty = true; }
+  function setRunning(v) { running = v; syncPlayButton(); dirty = true; wakeFrame(); }
   function applyMonthlyAutoDeposit(previousDay, currentDay) {
     const previousDate = simDateForDay(previousDay), currentDate = simDateForDay(currentDay);
     const crossedMonth = previousDate.getUTCFullYear() !== currentDate.getUTCFullYear() || previousDate.getUTCMonth() !== currentDate.getUTCMonth();
@@ -7529,11 +7532,38 @@ class Account {
   }
 
   const STEP_BUDGET_MS = 12;
-  let lastDom = 0, lastRank = 0;
+  const CHART_FRAME_MS = 100; // 市場再生中のチャートは最大約10fps
+  const IDLE_FRAME_MS = 500;
+  let lastDom = 0, lastRank = 0, lastChartPaint = 0;
   let last = performance.now(), acc = 0, lastHeat = 0;
+  let frameQueued = false, idleTimer = 0, chartGesture = false;
+  function queueFrame() {
+    if (!frameQueued) { frameQueued = true; requestAnimationFrame(frame); }
+  }
+  function wakeFrame() {
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = 0; }
+    chartGesture = true;
+    queueFrame();
+  }
+  function scheduleFrame() {
+    if (running && !document.hidden) queueFrame();
+    else if (!idleTimer) idleTimer = setTimeout(() => { idleTimer = 0; queueFrame(); }, IDLE_FRAME_MS);
+  }
+  document.addEventListener('click', () => { if (!running) wakeFrame(); }, { passive:true });
+  document.addEventListener('change', () => { if (!running) wakeFrame(); }, { passive:true });
+  document.addEventListener('input', () => { if (!running) wakeFrame(); }, { passive:true });
+  document.addEventListener('touchmove', () => { if (page === 'chart' && dirty) { chartGesture = true; if (!running) wakeFrame(); } }, { passive:true });
+  document.addEventListener('pointermove', () => { if (page === 'chart' && dirty) { chartGesture = true; if (!running) wakeFrame(); } }, { passive:true });
+  window.addEventListener('hashchange', wakeFrame);
+  document.addEventListener('visibilitychange', () => {
+    last = performance.now();
+    if (!document.hidden) { dirty = true; wakeFrame(); }
+  });
   function frame(now) {
+    frameQueued = false;
     const dt = Math.min(0.25, (now - last) / 1000);
     last = now;
+    if (document.hidden) { scheduleFrame(); return; }
     if (running && market.phase !== 'closed') {
       if (now - lastAutoCheckpoint > 30000) { lastAutoCheckpoint = now; scheduleAutoSave(700); }
       acc += dt * speed;
@@ -7555,7 +7585,13 @@ class Account {
         dirty = true;
       }
     }
-    if (now - lastRank > 500) { lastRank = now; updateRanks(); renderSettings(); }
+    if (now - lastRank > 500 && (running || dirty)) {
+      lastRank = now;
+      updateRanks(false);
+      const editing = document.activeElement && document.activeElement.closest &&
+        document.activeElement.closest('#page-settings input, #page-settings select, #page-settings textarea');
+      if (page === 'settings' && !editing) renderSettings();
+    }
     if (market && market.newsDirty) {
       market.newsDirty = false;
       updateNewsTicker();
@@ -7564,11 +7600,13 @@ class Account {
     if (dirty) {
       updateTop();
       if (page === 'chart') {
-        dirty = false;
-        refreshDayOptions();
-        if (speed < 300 || now - lastDom > 120 || !running) { lastDom = now; updateList(); updateStock(); updateHold(); } // 高速のときは、文字の更新を間引く
-        draw();
-      } else if (now - lastHeat > 200) {
+        if (!running || chartGesture || now - lastChartPaint >= CHART_FRAME_MS) {
+          dirty = false; lastChartPaint = now; chartGesture = false;
+          refreshDayOptions();
+          if (speed < 300 || now - lastDom > 120 || !running) { lastDom = now; updateList(); updateStock(); updateHold(); }
+          draw();
+        }
+      } else if (now - lastHeat > 200 || !running) {
         dirty = false; lastHeat = now;
         if (page === 'market') renderMarket(false);
         else if (page === 'heatmap') colorHeat();
@@ -7579,7 +7617,7 @@ class Account {
         else if (page === 'company') renderCompanyInfo(false);
       }
     }
-    requestAnimationFrame(frame);
+    scheduleFrame();
   }
 
   function rebuild(newSeed) {
@@ -7856,6 +7894,8 @@ class Account {
     else if (page === 'order') renderOrder();
     else if (page === 'history') renderHistory(true);
     dirty = true;
+    window.dispatchEvent(new Event('kabu:state-restored'));
+    wakeFrame();
   }
 
   function downloadJsonBackup(snapshot) {
@@ -8113,7 +8153,7 @@ class Account {
   route();
   initDataManagement();
   window.__bootStage && window.__bootStage('保存データを確認しています…');
-  requestAnimationFrame(frame);
+  wakeFrame();
   }
   $('hm-grad').style.background = 'linear-gradient(90deg, color-mix(in srgb, var(--down) 56%, var(--surface)), var(--surface), color-mix(in srgb, var(--up) 56%, var(--surface)))';
   setTimeout(boot, 40);
@@ -8459,7 +8499,8 @@ class Account {
     syncTf();
   });
   document.addEventListener('change', syncTf);
-  setInterval(() => { if (currentPage() === 'chart') syncTf(); }, 400);
+  window.addEventListener('hashchange', syncTf);
+  window.addEventListener('kabu:state-restored', syncTf);
   const mobPlay = document.createElement('button');
   mobPlay.type = 'button'; mobPlay.className = 'btn mob-play'; mobPlay.id = 'mob-play';
   mobPlay.addEventListener('click', () => { play.click(); });
@@ -8523,7 +8564,8 @@ class Account {
     function syncHeatSel() { pairs.forEach((p) => { const c = p[0].filter((r) => r.checked)[0]; if (c && p[1].value !== c.value) p[1].value = c.value; }); }
     syncHeatSel();
     document.addEventListener('change', syncHeatSel);
-    setInterval(() => { if (currentPage() === 'heatmap') syncHeatSel(); }, 400);
+    window.addEventListener('hashchange', syncHeatSel);
+    window.addEventListener('kabu:state-restored', syncHeatSel);
   })();
 
   /* ---- 企業情報の「業種・銘柄選択」と、ニュースの「絞り込み」：閉じられるようにする ---- */
