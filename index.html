@@ -2716,6 +2716,25 @@ function playerCreditFor(code) {
 }
 function cloneCreditBalances(x) { return {general:{buy:x.general.buy,sell:x.general.sell},system:{buy:x.system.buy,sell:x.system.sell}}; }
 
+// STEP 2: 過去の粗い株価データから生成した分足は保存データに含めず、最近参照した分だけキャッシュ。
+const REBUILT_CANDLES_LIMIT = 12; // 15分足の直近10営業日表示もキャッシュ内に収まる
+const rebuiltCandleCache = new Map(); // key: 過去日レコード。新規市場・復元・株式分割時に無効化
+function clearRebuiltCandleCache() { rebuiltCandleCache.clear(); }
+function readRebuiltCandles(stock, rec) {
+  if (rebuiltCandleCache.has(rec)) {
+    const cached = rebuiltCandleCache.get(rec);
+    rebuiltCandleCache.delete(rec);
+    rebuiltCandleCache.set(rec, cached); // LRU: 最近使用したレコードを末尾へ
+    return cached;
+  }
+  const candles = stock.buildCandles(rec);
+  rebuiltCandleCache.set(rec, candles);
+  if (rebuiltCandleCache.size > REBUILT_CANDLES_LIMIT) {
+    rebuiltCandleCache.delete(rebuiltCandleCache.keys().next().value);
+  }
+  return candles;
+}
+
 class Stock {
   constructor(def) {
     // すべての銘柄で同じ形のオブジェクトにそろえる（計算を速くするため）
@@ -2777,6 +2796,8 @@ class Stock {
   setRating(rating, target) { this.rating = rating; this.target = target > 0 ? target : 0; this.bias = this.calcBias(); }
   /* 株式分割（f>1）・併合（f<1）：株数と株価が反比例。時価総額は変わらない。過去のチャートも同じ比率で直す */
   applySplit(f) {
+    // 分割・併合は過去の価格列にも作用する。派生チャートは再構築する。
+    clearRebuiltCandleCache();
     const inv = 1 / f;
     this.price = this.round(this.price * inv); this.prevClose = this.round(this.prevClose * inv); this.p = this.price;
     this.issued = Math.round(this.issued * f); this.treasury = Math.round(this.treasury * f); this.authorized = Math.round(this.authorized * f);
@@ -2843,7 +2864,10 @@ class Stock {
     }
     const d = this.days.find((x) => x.day === day);
     if (!d) return null;
-    if (!d.candles && d.path) d.candles = this.buildCandles(d);
+    // 派生分足は日足レコードを汚さず、一時LRUから参照する（保存容量も増やさない）。
+    if (!d.candles && d.path) {
+      return Object.assign({ live: false }, d, { candles: readRebuiltCandles(this, d) });
+    }
     return Object.assign({ live: false }, d);
   }
   /* 荒い刻みの値の記録から、1分足を組み立てる（出来高は、時間帯の活発さと値動きの大きさで配分する） */
@@ -5080,16 +5104,27 @@ class Account {
     if (tf === 15) {
       const base = rec.day;
       const hasToday = !!(rec.candles && rec.candles.length);   // 寄付前など、まだ値がない日は数えず、前の営業日で埋める
-      const days = k.days.filter((d) => d.day < base && (d.candles || d.path)).map((d) => d.day).slice(-(hasToday ? MULTI_FETCH - 1 : MULTI_FETCH));
+      // STEP 2: filter→map→slice の中間配列を作らず、必要な営業日だけ逆順で集める。
+      const quota = hasToday ? MULTI_FETCH - 1 : MULTI_FETCH;
+      const days = [];
+      for (let i = k.days.length - 1; i >= 0 && days.length < quota; i--) {
+        const d = k.days[i];
+        if (d.day < base && (d.candles || d.path)) days.push(d.day);
+      }
+      days.reverse();
       if (hasToday) days.push(base);
+      const recentStart = days[Math.max(0, days.length - MULTI_DAYS)];
       const bars = [];
-      days.forEach((d) => {
+      let autoBars = 0;
+      for (const d of days) {
         const r = d === base ? rec : k.record(d, market.day);
-        if (r && r.candles) aggregate(r.candles, 15).forEach((b) => bars.push(Object.assign({ day: d }, b)));
-      });
-      const recent = days.slice(-MULTI_DAYS);                 // 初期表示は直近3営業日、左へドラッグすると古い日が出る
-      const autoBars = bars.filter((b) => recent.indexOf(b.day) >= 0).length;
-      return { kind: 'min', live: rec.live, bars, rec, multi: recent.length, autoBars };
+        if (!r || !r.candles) continue;
+        for (const b of aggregate(r.candles, 15)) {
+          bars.push(Object.assign({ day: d }, b));
+          if (d >= recentStart) autoBars++;
+        }
+      }
+      return { kind: 'min', live: rec.live, bars, rec, multi: Math.min(MULTI_DAYS, days.length), autoBars };
     }
     return { kind: 'min', live: rec.live, bars: aggregate(rec.candles, tf), rec };
   }
@@ -5667,6 +5702,13 @@ class Account {
       $('page-' + n).hidden = n !== page;
       $('tab-' + n).setAttribute('aria-current', n === page ? 'page' : 'false');
     });
+    // STEP 2: 非表示画面のCanvas描画バッファを解放。戻る際は既存のresize/描画で復元する。
+    const releaseCanvas = (c) => {
+      if (c && (c.width > 1 || c.height > 1)) { c.width = 1; c.height = 1; }
+    };
+    if (page !== 'chart') [cv, rsiCv, macdCv].forEach(releaseCanvas);
+    if (page !== 'company') releaseCanvas($('company-cv'));
+    if (page !== 'settings') releaseCanvas($('smini-cv'));
     if (account) {
       if (page === 'market') renderMarket(true);
       else if (page === 'heatmap') { layoutHeat(); colorHeat(); }
@@ -6488,7 +6530,8 @@ class Account {
     $('credit-orders-empty').hidden = account.creditOrders.length > 0;
     $('credit-orders-table').hidden = account.creditOrders.length === 0;
     const eb = $('credit-execs-body'); eb.textContent = '';
-    account.creditExecs.slice(0, 200).forEach((e) => {
+    for (let i = 0, count = Math.min(200, account.creditExecs.length); i < count; i++) {
+      const e = account.creditExecs[i];
       const tr = mkEl('tr'), k = market.byCode.get(e.code);
       tr.appendChild(mkTd(stampText(e.day, e.sec)));
       tr.appendChild(mkTd(e.name + '（' + e.code + '）'));
@@ -6501,7 +6544,7 @@ class Account {
       tr.appendChild(mkTd(e.pnl == null ? '—' : arrowOf(e.pnl) + syen(e.pnl), 'n ' + (e.pnl == null ? '' : dirOf(e.pnl))));
       tr.appendChild(mkTd(e.forced ? '強制決済' : e.operation === 'open' ? '建玉作成' : '通常返済'));
       eb.appendChild(tr);
-    });
+    }
     $('credit-execs-empty').hidden = account.creditExecs.length > 0;
     $('credit-execs-table').hidden = account.creditExecs.length === 0;
   }
@@ -7621,6 +7664,7 @@ class Account {
   }
 
   function rebuild(newSeed) {
+    clearRebuiltCandleCache();
     seed = newSeed;
     marketId++;
     market = new Market(seed, scale);
@@ -7835,9 +7879,17 @@ class Account {
     restoredMarket.newsDirty = true;
     restoredMarket.pruneNews();
     const defByCode = new Map(DEFS.map((d) => [d.code, d]));
+    // STEP 2: 旧バージョンが保存していた派生分足を取り除く。
+    // 再構築に使えるpathがある日だけ解放し、復元不可能な履歴は消さない。
+    clearRebuiltCandleCache();
     restoredMarket.stocks = data.market.stocks.map((raw) => {
       const stock = Object.create(Stock.prototype);
       Object.assign(stock, raw);
+      for (const day of stock.days) {
+        if (day && day.path && typeof day.path.length === 'number' && day.path.length > 0 && day.candles) {
+          day.candles = null;
+        }
+      }
       return stock;
     });
     restoredMarket.indexMembers = restoredMarket.stocks.filter((stock) => !stock.isEtf);
@@ -7934,7 +7986,8 @@ class Account {
   function initDataManagement() {
     $('persist-save-now').addEventListener('click', () => persistNow(true));
     $('persist-export').addEventListener('click', () => {
-      try { downloadJsonBackup(saveSnapshot()); }
+      // JSON.stringifyは同期実行のため、書き出し直前の二重structuredCloneは不要。
+      try { downloadJsonBackup(saveSnapshot(true)); }
       catch (error) { setText($('persist-msg'), '書き出しに失敗しました：' + (error.message || '不明なエラー')); }
     });
     $('persist-import-trigger').addEventListener('click', () => $('persist-import-file').click());
