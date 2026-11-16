@@ -639,6 +639,7 @@ h1 { font-size: 19px; }
     position: sticky; bottom: calc(var(--nav-h) + var(--safe-b)); z-index: 7;
     background: var(--surface); padding: 8px 0 10px; border-top: 1px solid var(--line);
   }
+  .oform #o-msg:not(:empty) { max-height: min(24dvh, 8em); overflow-y: auto; margin-bottom: 6px; }
 }
 @media (min-width: 900px) { .mob-q-toggle { display: none; } }
 .ogrid { grid-template-columns: 1fr; }
@@ -886,9 +887,10 @@ body[data-page="chart"] .mob-fab { display: none; }
 #page-chart.layout[hidden] { display: none !important; }      /* 他のページでは出さない */
 #page-chart.layout:not([hidden]) {
   display: flex !important; flex-direction: column; min-height: 0;
-  height: calc(100dvh - var(--head-h, 49px) - var(--nav-h) - var(--safe-b) - var(--chart-pad, 10px));
+  height: var(--chart-available-h, calc(100dvh - 49px - var(--nav-h) - var(--safe-b) - 10px));
+  overflow-y: auto; overscroll-behavior: contain;
 }
-#page-chart .main { flex: 1 1 auto; min-height: 0; display: flex !important; flex-direction: column; gap: 4px; }
+#page-chart .main { flex: 1 0 auto; min-height: min-content; height: 100%; display: flex !important; flex-direction: column; gap: 4px; }
 
 /* 銘柄ヘッダー：◀ 銘柄名 ▶ ／ 現在値・前日比 */
 #page-chart .sh { padding: 2px 2px 0; border: 0; background: none; box-shadow: none; gap: 2px; flex: none; }
@@ -902,7 +904,7 @@ body[data-page="chart"] .mob-fab { display: none; }
 #page-chart .limit { font-size: 12px; }
 
 /* チャートカード：操作行・OHLC・チャート本体で残りの高さを使い切る */
-#page-chart .chartcard { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; padding: 0; border: 0; background: none; box-shadow: none; gap: 2px; }
+#page-chart .chartcard { flex: 1 0 auto; min-height: min-content; display: flex; flex-direction: column; padding: 0; border: 0; background: none; box-shadow: none; gap: 2px; }
 #page-chart .chartbar, #page-chart #tf-note, #page-chart .indicator-controls, #page-chart .legend, #page-chart .indicator-note { display: none !important; }
 .mob-ctl { display: flex; align-items: center; gap: 8px; flex: none; }
 .mob-ctl .mob-tf { flex: 0 0 auto; min-width: 120px; min-height: 40px; font-size: 15px; font-weight: 700; padding-top: 0; padding-bottom: 0; }
@@ -912,9 +914,9 @@ body[data-page="chart"] .mob-fab { display: none; }
 #page-chart .ohlc > span:nth-child(1), #page-chart .ohlc > span:nth-child(6) { display: none; }
 #page-chart .ohlc b { margin-left: 4px; font-size: 12.5px; }
 
-.mob-area { position: relative; flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+.mob-area { position: relative; flex: 1 0 auto; min-height: min-content; display: flex; flex-direction: column; }
 #page-chart .chartbox { flex: 1 1 0; height: auto; min-height: 120px; }
-#page-chart .indicator-panel:not([hidden]) { display: flex; flex-direction: column; flex: 0 0 23%; min-height: 0; margin: 2px 0 0; padding-top: 2px; border-top: 1px solid var(--line-strong); }
+#page-chart .indicator-panel:not([hidden]) { display: flex; flex-direction: column; flex: 0 0 23%; min-height: 96px; margin: 2px 0 0; padding-top: 2px; border-top: 1px solid var(--line-strong); }
 #page-chart .indicator-head { padding: 0 2px; flex: none; }
 #page-chart .indicator-title, #page-chart .indicator-value { font-size: 11.5px; }
 #page-chart .indicator-chartbox { flex: 1 1 0; height: auto; min-height: 0; }
@@ -1963,10 +1965,9 @@ body[data-page="settings"]:not([data-stv="save"]) section.rules { display: none;
         <div id="r-credit-ratio" hidden><span>現在の委託保証金率</span><b id="s-credit-ratio">—</b></div>
       </div>
 
-      <ul class="errs" id="o-msg" aria-label="注文できない理由"></ul>
-
       <div>
-        <button class="btn primary" id="o-submit" type="button" style="width:100%; max-width:420px">注文内容を確認する（<span id="lbl-submit-side"></span>）</button>
+        <ul class="errs" id="o-msg" aria-label="注文できない理由" aria-live="polite" aria-atomic="true"></ul>
+        <button class="btn primary" id="o-submit" type="button" aria-describedby="o-msg" style="width:100%; max-width:420px">注文内容を確認する（<span id="lbl-submit-side"></span>）</button>
         <div class="confirmbox" id="o-confirm" hidden>
           <p id="o-confirm-text"></p>
           <div class="row"><button class="btn primary" id="o-yes" type="button">この内容で注文する</button><button class="btn" id="o-no" type="button">戻る</button></div>
@@ -5233,18 +5234,20 @@ class Account {
     return { line, signal, hist };
   }
 
-  function fitIndicatorCanvas(canvas) {
+  function fitIndicatorCanvas(canvas, wake = false) {
     const box = canvas.parentElement.getBoundingClientRect();
     const w = Math.floor(box.width), h = Math.floor(box.height);
     if (!w || !h) return false;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const pixelW = Math.round(w * dpr), pixelH = Math.round(h * dpr);
+    const context = canvas.getContext('2d');
+    const changed = canvas.width !== pixelW || canvas.height !== pixelH || context.getTransform().a !== dpr;
     // 同じ幅・高さの代入もCanvasを再初期化するのでサイズ変更時だけ適用。
     if (canvas.width !== pixelW || canvas.height !== pixelH) {
       canvas.width = pixelW; canvas.height = pixelH;
     }
-    // ビューポート倍率のみ変わる場合も座標変換を同期する。
-    canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (changed && wake) { dirty = true; wakeFrame(); }
     return true;
   }
 
@@ -5561,13 +5564,21 @@ class Account {
 
   function resize() {
     const box = $('chartbox').getBoundingClientRect();
-    W = Math.floor(box.width); H = Math.floor(box.height);
+    const w = Math.floor(box.width), h = Math.floor(box.height);
+    if (!w || !h) return; // 非表示の間は描画済みの内容を保持。
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    const pixelW = Math.round(w * dpr), pixelH = Math.round(h * dpr);
+    if (W === w && H === h && cv.width === pixelW && cv.height === pixelH && ctx.getTransform().a === dpr) return;
+    W = w; H = h;
+    // 同じ大きさの通知では描画済みのキャンバスを消さない。
+    if (cv.width !== pixelW || cv.height !== pixelH) {
+      cv.width = pixelW; cv.height = pixelH;
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (indicators.rsi) fitIndicatorCanvas(rsiCv);
     if (indicators.macd) fitIndicatorCanvas(macdCv);
     dirty = true;
+    wakeFrame();
   }
 
   /* ======== ヒートマップ ======== */
@@ -5915,9 +5926,17 @@ class Account {
   }
 
   /* ---- 他のページへの移動 ---- */
-  function goOrder(code, side) {
+  function goOrder(code, side, product) {
     ord.code = code;
-    if (side) ord.side = side;
+    // 現物保有の操作は、直前の信用新規・返済モードを引き継がない。
+    if (product === 'cash') {
+      ord.product = 'cash'; ord.creditOperation = 'open'; ord.positionId = null;
+    }
+    if (side) {
+      ord.side = side;
+      // IFDは現物買い、OCOは現物売り専用。明示された売買方向を優先する。
+      if (ord.product === 'cash' && ((ord.type === 'ifd' && side === 'sell') || (ord.type === 'oco' && side === 'buy'))) ord.type = 'market';
+    }
     ord.confirming = false;
     $('o-limit').value = ord.type === 'limit' ? priceStr(market.byCode.get(code).price) : '';
     seedAdvancedPrices(code);
@@ -5992,8 +6011,8 @@ class Account {
         const b1 = mkEl('button', 'btn sm', '買い増し'); b1.type = 'button';
         const b2 = mkEl('button', 'btn sm', '売る'); b2.type = 'button';
         const b3 = mkEl('button', 'btn sm', 'チャート'); b3.type = 'button';
-        b1.addEventListener('click', () => goOrder(p.code, 'buy'));
-        b2.addEventListener('click', () => goOrder(p.code, 'sell'));
+        b1.addEventListener('click', () => goOrder(p.code, 'buy', 'cash'));
+        b2.addEventListener('click', () => goOrder(p.code, 'sell', 'cash'));
         b3.addEventListener('click', () => goChart(p.code));
         act.appendChild(b1); act.appendChild(b2); act.appendChild(b3);
         tr.appendChild(act);
@@ -6135,7 +6154,7 @@ class Account {
         btn.appendChild(c1); btn.appendChild(c2); btn.appendChild(c3);
         const act = mkEl('div', 'mp-act');
         const mk = (label, fn) => { const b = mkEl('button', 'btn sm', label); b.type = 'button'; b.addEventListener('click', fn); act.appendChild(b); };
-        if (x.kind === 'cash') { mk('買い増し', () => goOrder(x.code, 'buy')); mk('売る', () => goOrder(x.code, 'sell')); }
+        if (x.kind === 'cash') { mk('買い増し', () => goOrder(x.code, 'buy', 'cash')); mk('売る', () => goOrder(x.code, 'sell', 'cash')); }
         else mk('返済注文', () => goCreditClose(x.posId));
         mk('チャート', () => goChart(x.code));
         const open = !!mp.open[x.id];
@@ -8218,8 +8237,8 @@ class Account {
 
   if ('ResizeObserver' in window) {
     new ResizeObserver(resize).observe($('chartbox'));
-    new ResizeObserver(() => { if (indicators.rsi) { fitIndicatorCanvas(rsiCv); dirty = true; } }).observe(rsiCv.parentElement);
-    new ResizeObserver(() => { if (indicators.macd) { fitIndicatorCanvas(macdCv); dirty = true; } }).observe(macdCv.parentElement);
+    new ResizeObserver(() => { if (indicators.rsi) fitIndicatorCanvas(rsiCv, true); }).observe(rsiCv.parentElement);
+    new ResizeObserver(() => { if (indicators.macd) fitIndicatorCanvas(macdCv, true); }).observe(macdCv.parentElement);
     new ResizeObserver(() => { if (page === 'heatmap') { layoutHeat(); colorHeat(); } if (page === 'settings') drawSettingsMini(true); }).observe($('hm-box'));
   } else {
     window.addEventListener('resize', () => { resize(); if (page === 'heatmap') { layoutHeat(); colorHeat(); } if (page === 'settings') drawSettingsMini(true); });
@@ -8621,16 +8640,17 @@ class Account {
     return false;
   }
   let sw = null;
+  const swipeDialogOpen = () => !sheet.hidden || document.body.classList.contains('mk-dlg-open') || document.body.classList.contains('scr-open');
   document.addEventListener('touchstart', (e) => {
     sw = null;
-    if (e.touches.length !== 1 || (SWIPE.indexOf(currentPage()) < 0 && !SUBS[currentPage()]) || !sheet.hidden || document.body.classList.contains('mk-dlg-open')) return;
+    if (e.touches.length !== 1 || (SWIPE.indexOf(currentPage()) < 0 && !SUBS[currentPage()]) || swipeDialogOpen()) return;
     const t = e.touches[0];
     if (t.clientX < 24 || t.clientX > window.innerWidth - 24) return;      // 画面の端は、OSの戻るジェスチャーに譲る
     if (swipeBlocked(e.target)) return;
     sw = { x: t.clientX, y: t.clientY, t: Date.now() };
   }, { passive: true });
   document.addEventListener('touchend', (e) => {
-    if (!sw) return;
+    if (!sw || swipeDialogOpen()) { sw = null; return; }
     const t = e.changedTouches[0], dx = t.clientX - sw.x, dy = t.clientY - sw.y, dt = Date.now() - sw.t;
     sw = null;
     if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.8 || dt > 700) return;
@@ -8681,6 +8701,34 @@ class Account {
   area.className = 'mob-area';
   chartCard.insertBefore(area, $('chartbox'));
   area.appendChild($('chartbox')); area.appendChild($('macd-panel')); area.appendChild($('rsi-panel'));
+
+  // 展開した上部バーと実際のナビ高さを除いた領域に収める。
+  // 横向きなどで足りない分はチャート内で縦スクロールし、指標を隠さない。
+  const chartPage = $('page-chart');
+  let chartLayoutFrame = 0;
+  function fitChartPage() {
+    chartLayoutFrame = 0;
+    if (chartPage.hidden) return;
+    const top = chartPage.getBoundingClientRect().top;
+    const nav = document.querySelector('.mob-nav');
+    const bottom = nav ? nav.getBoundingClientRect().top : window.innerHeight;
+    const available = Math.max(0, Math.floor(bottom - top - 2));
+    const value = available + 'px';
+    if (chartPage.style.getPropertyValue('--chart-available-h') !== value) chartPage.style.setProperty('--chart-available-h', value);
+  }
+  function queueChartLayout() {
+    if (!chartLayoutFrame) chartLayoutFrame = requestAnimationFrame(fitChartPage);
+  }
+  if ('ResizeObserver' in window) {
+    const layoutObserver = new ResizeObserver(queueChartLayout);
+    [head, document.querySelector('.bar'), document.querySelector('.news-ticker'), document.querySelector('.mob-nav')].filter(Boolean).forEach(el => layoutObserver.observe(el));
+  }
+  new MutationObserver(queueChartLayout).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  window.addEventListener('resize', queueChartLayout);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', queueChartLayout);
+  window.addEventListener('hashchange', queueChartLayout);
+  window.addEventListener('kabu:state-restored', queueChartLayout);
+  queueChartLayout();
 
   // ③ 左端の「テクニカル」タブ → ボリンジャーバンド／MACD／RSI のみのパネル
   const techTab = document.createElement('button');
