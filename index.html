@@ -1267,6 +1267,19 @@ html, body { overscroll-behavior-y: none; }
 #page-order .stepper { min-width: 0; }
 #page-order .stepper .num { min-width: 0; }
 #page-order .oform { overflow-x: clip; }
+.order-view { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+.order-view .btn { min-width:0; padding:8px; }
+.order-view .btn[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+.order-view .btn[aria-disabled="true"] { opacity:.65; }
+.order-view-note { font-size:12px; color:var(--muted); }
+.order-extra-info { min-width:0; border:1px solid var(--line); border-radius:8px; padding:0 10px; }
+.order-extra-info > summary { min-height:44px; padding:10px 0; font-size:13px; font-weight:700; color:var(--accent); cursor:pointer; }
+.order-extra-info[open] { padding-bottom:10px; }
+#page-order[data-order-view="detail"] .order-extra-info { border:0; padding:0; }
+#page-order[data-order-view="detail"] .order-extra-info > summary { display:none; }
+#page-order[data-order-view="simple"] #order-trade-options { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+#page-order[data-order-view="simple"] #order-trade-options:has(#o-side-wrap[hidden]) { grid-template-columns:1fr; }
+@media(max-width:359px) { #page-order[data-order-view="simple"] #order-trade-options { grid-template-columns:1fr; } }
 
 /* ================= v14：市場の設定（タブ＋項目ごとの開閉） ================= */
 #st-sub, #st-tgt { display: none; }
@@ -1307,6 +1320,72 @@ body[data-page="settings"]:not([data-stv="save"]) section.rules { display: none;
 /* v17：画面の外にある行は描画を省く（銘柄が多い一覧のカクつき対策） */
 #mk-list > li { content-visibility: auto; contain-intrinsic-size: auto 72px; }
 
+/* 銘柄ごとの未約定注文と通常指値の価格訂正 */
+#stock-orders-open { margin-left:auto; align-self:center; min-height:44px; white-space:nowrap; }
+body.stock-orders-open { overflow:hidden; }
+.stock-orders-dlg { width:min(560px,calc(100vw - 24px)); max-height:calc(100dvh - 24px); padding:0; border:1px solid var(--line-strong); border-radius:14px; color:var(--ink); background:var(--surface); box-shadow:0 16px 50px #0006; }
+.stock-orders-dlg[open] { display:flex; flex-direction:column; }
+.stock-orders-dlg::backdrop { background:#0009; }
+.stock-orders-head { display:flex; align-items:center; gap:12px; padding:12px 14px; border-bottom:1px solid var(--line); }
+.stock-orders-head h2 { flex:1; min-width:0; margin:0; font-size:17px; overflow-wrap:anywhere; }
+.stock-orders-scroll { overflow-y:auto; overscroll-behavior:contain; padding:12px 14px max(14px,env(safe-area-inset-bottom,0px)); min-height:0; }
+.stock-orders-list,.order-amendment-history { list-style:none; margin:0; padding:0; }
+.stock-orders-list > li,.order-amendment-history > li { padding:12px 0; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
+.stock-orders-list p,.stock-orders-list h3 { margin:0 0 6px; font-size:14px; }
+.stock-orders-list .row { gap:8px; }
+.stock-orders-dlg .btn { min-height:44px; white-space:normal; }
+.stock-order-edit { margin-top:14px; padding:12px; border:1px solid var(--line-strong); border-radius:10px; background:var(--bg); }
+.stock-order-edit h3 { margin:0 0 8px; font-size:16px; }
+.stock-order-edit .num { width:100%; min-height:48px; font-size:18px; }
+.stock-order-edit .row { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.stock-order-edit .row > .btn { flex:1; }
+#stock-orders-message { margin:8px 0; color:var(--accent); font-weight:700; }
+#stock-order-error { margin:8px 0; color:var(--down); }
+.stock-order-unsupported { color:var(--muted); font-size:12px !important; }
+.order-amendment-history { font-size:13px; }
+
+.stock-orders-head h2 small { display:block; font-size:12px; color:var(--muted); font-weight:400; }
+.stock-orders-editing #stock-orders-list,.stock-orders-editing #stock-orders-empty,.stock-orders-editing #stock-orders-help { display:none; }
+.stock-orders-editing .stock-order-edit { margin-top:0; }
+
+</style>
+
+<style id="stock-information-layer">
+:root { --stock-nav-h: 46px; }
+#stock-info-nav { position:sticky; top:var(--stock-nav-top, var(--top-h)); z-index:13; flex:none; margin:0 -10px; padding:0 10px; background:var(--bg); border-bottom:1px solid var(--line-strong); }
+#stock-info-nav[hidden] { display:none; }
+.stock-info-context { display:none; min-width:0; align-items:baseline; gap:8px; padding:7px 2px; }
+.stock-info-context b { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:16px; }
+.stock-info-context span { flex:none; color:var(--muted); font:13px var(--font-num); }
+body[data-page="stock-news"] .stock-info-context, body[data-page="stock-hold"] .stock-info-context { display:flex; }
+.stock-info-tabs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:0; }
+.stock-info-tabs button { min-width:0; min-height:46px; padding:5px 2px; border:0; border-bottom:3px solid transparent; background:none; color:var(--muted); font:700 13px var(--font-body); cursor:pointer; white-space:nowrap; }
+.stock-info-tabs button[aria-current="page"] { color:var(--accent); border-bottom-color:var(--accent); }
+.stock-info-tabs button:focus-visible { outline:2px solid var(--ink); outline-offset:-3px; }
+body[data-page="company"] #mk-sub { display:none; }
+body[data-page="company"] #co-sub { top:calc(var(--stock-nav-top, var(--top-h)) + var(--stock-nav-h)); }
+body[data-page="company"] .co-mini { top:calc(var(--stock-nav-top, var(--top-h)) + var(--stock-nav-h) + var(--sub-h)); }
+body[data-page="stock-news"] .mob-fab, body[data-page="stock-hold"] .mob-fab { display:none; }
+.stock-info-page { display:grid; gap:12px; min-width:0; }
+.stock-info-page[hidden] { display:none; }
+.stock-info-page h2 { margin:0; font-size:18px; }
+.stock-info-tools { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.stock-info-tools label { flex:1 1 180px; min-width:0; font-size:13px; }
+.stock-info-tools select { width:100%; margin-top:4px; }
+.stock-info-tools .btn { flex:0 1 auto; padding-inline:12px; font-size:13px; }
+.stock-info-tools a.btn { display:inline-flex; align-items:center; justify-content:center; text-decoration:none; }
+.news-stock-link { display:block; width:100%; min-height:44px; padding:2px 0; border:0; background:none; color:var(--accent); text-align:left; font:650 14px/1.65 var(--font-body); cursor:pointer; overflow-wrap:anywhere; }
+.news-stock-link:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:3px; }
+.news-relevance { color:var(--accent); font-size:12px; font-weight:700; }
+.stock-hold-list { display:grid; gap:10px; min-width:0; }
+.stock-hold-item { min-width:0; padding:12px; border:1px solid var(--line); border-radius:9px; background:var(--bg); }
+.stock-hold-item h3 { margin:0 0 8px; font-size:15px; }
+.stock-hold-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px 12px; margin:0; }
+.stock-hold-metrics div { min-width:0; }
+.stock-hold-metrics dt { color:var(--muted); font-size:12px; }
+.stock-hold-metrics dd { margin:2px 0 0; font:500 15px/1.45 var(--font-num); overflow-wrap:anywhere; }
+.stock-hold-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.stock-hold-actions .btn { flex:1 1 100px; padding-inline:12px; }
 </style>
 </head>
 <body>
@@ -1388,6 +1467,32 @@ body[data-page="settings"]:not([data-stv="save"]) section.rules { display: none;
     <a href="#company" data-p="company">企業情報</a>
     <a href="#news" data-p="news">ニュース</a>
   </nav>
+  <!-- 選択中の銘柄を保ったまま、情報を切り替える -->
+  <nav id="stock-info-nav" hidden aria-label="選択中の銘柄の情報">
+    <div class="stock-info-context"><b id="stock-info-name">—</b><span id="stock-info-code">—</span></div>
+    <div class="stock-info-tabs">
+      <button type="button" data-stock-view="chart">チャート</button>
+      <button type="button" data-stock-view="company">企業情報</button>
+      <button type="button" data-stock-view="news">関連ニュース</button>
+      <button type="button" data-stock-view="hold">保有状況</button>
+    </div>
+  </nav>
+  <section id="page-stock-news" class="stock-info-page card pad" hidden aria-label="選択銘柄の関連ニュース">
+    <h2>関連ニュース</h2>
+    <div class="stock-info-tools">
+      <label>表示する範囲<select class="sel" id="stock-news-scope"><option value="relevant">この銘柄＋業種・市場のニュース</option><option value="direct">この銘柄のみ</option></select></label>
+      <a class="btn" href="#news">ニュース一覧へ（全銘柄）</a>
+    </div>
+    <p class="note" id="stock-news-note">銘柄のニュースと、影響する可能性がある業種・市場全体のニュースを表示します。</p>
+    <p class="news-count" id="stock-news-count" aria-live="polite"></p>
+    <div class="news-list" id="stock-news-list"></div>
+    <p class="news-empty" id="stock-news-empty">関連するニュースはまだありません。</p>
+  </section>
+  <section id="page-stock-hold" class="stock-info-page" hidden aria-label="選択銘柄の保有状況">
+    <div class="stock-info-tools"><h2>この銘柄の保有状況</h2><button class="btn" id="stock-hold-orders" type="button">注文中 0件</button><a class="btn" href="#mypage">全銘柄の資産へ</a></div>
+    <section class="card pad"><h2>現物</h2><p class="empty" id="stock-hold-cash-empty">この銘柄の現物株は保有していません。</p><div class="stock-hold-list" id="stock-hold-cash"></div><div class="stock-hold-actions"><button type="button" class="btn primary stock-cash-buy" id="stock-hold-buy">現物を買う</button></div></section>
+    <section class="card pad"><h2>信用建玉</h2><p class="empty" id="stock-hold-credit-empty">この銘柄の信用建玉はありません。</p><div class="stock-hold-list" id="stock-hold-credit"></div></section>
+  </section>
   <section id="page-market" class="card mk" hidden aria-label="マーケットのランキング">
     <div class="mk-ctl">
       <button type="button" class="mk-btn mk-btn-s" id="mk-open-a" aria-haspopup="dialog">業種別<i aria-hidden="true">▾</i></button>
@@ -1428,6 +1533,7 @@ body[data-page="settings"]:not([data-stv="save"]) section.rules { display: none;
           <span class="chg" id="s-chg">—</span>
           <span class="limit" id="s-limit"></span>
           <button class="btn sm primary sh-trade" id="go-buy" type="button">取引</button>
+          <button class="btn sm" id="stock-orders-open" type="button" aria-haspopup="dialog">注文中 0件</button>
         </div>
         <div hidden>
           <dl class="facts">
@@ -1825,6 +1931,13 @@ body[data-page="settings"]:not([data-stv="save"]) section.rules { display: none;
     </section>
 
     <section class="card pad oform" aria-label="注文入力パネル">
+      <div>
+        <div class="order-view" role="group" aria-label="注文画面の表示">
+          <button class="btn" id="order-view-simple" type="button" aria-pressed="true">シンプル注文</button>
+          <button class="btn" id="order-view-detail" type="button" aria-pressed="false">詳細注文</button>
+        </div>
+        <p class="order-view-note" id="order-view-note" role="status"></p>
+      </div>
       <div class="fld">
         <span class="lbl">取引区分</span>
         <div class="seg" role="radiogroup" aria-label="現物取引・信用取引">
@@ -1859,13 +1972,15 @@ body[data-page="settings"]:not([data-stv="save"]) section.rules { display: none;
       <div>
         <div class="sh-top"><span class="sh-name" id="o-name">—</span><span class="sh-sub" id="o-sub">—</span><span class="badge" id="o-badge"></span></div>
         <div class="sh-price"><span class="price sm" id="o-price" style="font-size:30px">—</span><span class="chg" id="o-chg">—</span></div>
+      </div>
+      <details class="order-extra-info" id="order-extra-info">
+        <summary>銘柄情報・ミニチャート</summary>
         <dl class="facts" style="margin-top:8px">
           <div><dt>呼値の単位</dt><dd id="of-tick">—</dd></div>
           <div><dt>制限値幅（きょうの範囲）</dt><dd id="of-limit">—</dd></div>
           <div><dt>保有</dt><dd id="of-hold">—</dd></div>
           <div><dt>売却可能</dt><dd id="of-sellable">—</dd></div>
         </dl>
-      </div>
 
       <div class="mini" id="mini">
         <button class="minihead" id="mc-toggle" type="button" aria-expanded="false" aria-controls="mc-body"><span id="mc-lbl">ミニチャートを表示（クリックで開閉）</span><i class="chev" aria-hidden="true"></i></button>
@@ -1881,8 +1996,9 @@ body[data-page="settings"]:not([data-stv="save"]) section.rules { display: none;
           </div>
         </div>
       </div>
+      </details>
 
-      <div class="ogrid">
+      <div class="ogrid" id="order-trade-options">
         <div id="o-side-wrap">
           <span class="lbl" id="l-oside">売買</span>
           <div class="seg sidebuy-wrap" role="radiogroup" aria-labelledby="l-oside">
@@ -2024,6 +2140,8 @@ body[data-page="settings"]:not([data-stv="save"]) section.rules { display: none;
         </div>
       </details>
     </section>
+
+    <section class="card pad" aria-label="指値訂正履歴" data-hv="ord"><details><summary>指値訂正履歴（<span id="order-amendment-count">0</span>件）</summary><p class="note" id="order-amendment-empty">指値訂正の履歴はありません。</p><ol class="order-amendment-history" id="order-amendment-history"></ol></details></section>
 
     <section class="card pad" aria-label="信用注文中">
       <h2 class="ttl">信用注文中（未約定）</h2>
@@ -3842,6 +3960,7 @@ class Account {
     this.closed = [];     // 取消・失効・不成立の注文（新しい順）
     this.execs = [];      // 約定履歴（新しい順）
     this.events = [];     // 画面に知らせる出来事
+    this.orderAmendments = []; // 指値訂正の履歴（完全約定後も保存）
     this.nextId = 1; this.nextExec = 1;
     this.realized = 0;    // 税引前の実現損益累計
     this.taxPaid = 0;      // 現時点で源泉徴収している税額（還付後の純額）
@@ -4205,6 +4324,61 @@ class Account {
       if (qty > sb) errors.push(sb <= 0 ? '売却できる株がありません。' : '売却できる株数を超えています（売却可能 ' + sb.toLocaleString('ja-JP') + '株）。');
     }
     return { ok: errors.length === 0, errors, price: ref, amount };
+  }
+
+  /* 通常指値の価格訂正。残数量だけを対象にし、確認後も同じ注文か照合する。 */
+  pendingOrder(product, id) {
+    const list = product === 'cash' ? this.orders : product === 'credit' ? this.creditOrders : [];
+    return list.find((o) => o.id === Number(id)) || null;
+  }
+  canAmendLimitOrder(o) {
+    return !!(o && o.status === 'open' && o.type === 'limit' && o.qty > 0 && !o.advanced && !o.ocoGroup && !o.persistent && !o.parentId && !o.ifdExitPrice && o.activeDay == null);
+  }
+  limitAmendmentKey(product, id) {
+    const o = this.pendingOrder(product, id);
+    return o ? JSON.stringify([product,o.id,o.code,o.status,o.type,o.day,o.sec,o.qty,o.origQty||0,o.filled||0,o.filledAmt||0,o.limit,o.reserve||0,o.reserveMargin||0,o.side,o.operation||'',o.positionId||0,o.creditType||'',o.openPosId||0,o.advanced||'',o.ocoGroup||'',!!o.persistent,o.parentId||0,o.activeDay,o.amendRevision||0]) : null;
+  }
+  validateLimitAmendment(product, id, limit, market, expectedKey) {
+    const o = this.pendingOrder(product, id);
+    if (!o) return { ok:false, errors:['この注文は約定・取消・失効により注文中ではなくなりました。'] };
+    if (!this.canAmendLimitOrder(o)) return { ok:false, errors:['価格訂正は通常の指値注文だけに対応しています。成行・逆指値・IFD・OCOは対象外です。'] };
+    if (typeof expectedKey !== 'string' || expectedKey !== this.limitAmendmentKey(product, id)) return { ok:false, errors:['確認中に注文の内容または残数量が変わりました。一覧から選び直してください。'] };
+    if (limit === o.limit) return { ok:false, errors:['現在と異なる指値を入力してください。'] };
+    // 自分自身の予約金・売却予約・返済予約・保有上限を二重に数えない読取専用ビュー。
+    const view = Object.assign(Object.create(Account.prototype), this);
+    view.orders = this.orders.filter((x) => x !== o);
+    view.creditOrders = this.creditOrders.filter((x) => x !== o);
+    const spec = { ...o, type:'limit', limit, qty:o.qty };
+    const result = product === 'credit' ? view.validateCredit(spec, market) : view.validate(spec, market);
+    // 信用売建の指値を現在値より下げると、実際の約定値は指値より高くなる。
+    // 即時約定に必要な保証金も先に確認し、不足時に原注文が失効するのを防ぐ。
+    if (result.ok && product === 'credit' && o.operation === 'open' && o.side === 'sell') {
+      const k = market.byCode.get(o.code);
+      const immediateMargin = Math.round(Math.max(limit,k.price) * o.qty) / CREDIT_MAX_LEVERAGE;
+      if (immediateMargin > view.creditFreeMargin(market) + 1e-6) return { ...result, ok:false, errors:['現在値で売建が約定する場合の保証金が不足しています。必要 '+yenText(immediateMargin)+'／新規建可能保証金 '+yenText(Math.max(0,view.creditFreeMargin(market)))+'。'], order:o };
+    }
+    return { ...result, order:o };
+  }
+  amendLimitOrder(product, id, limit, market, expectedKey) {
+    const result = this.validateLimitAmendment(product, id, limit, market, expectedKey);
+    if (!result.ok) return result;
+    const o = result.order;
+    const record = { product, orderId:o.id, code:o.code, name:o.name, day:market.day, sec:market.sec,
+      oldLimit:o.limit, newLimit:limit, qty:o.qty, filled:o.filled||0, operation:o.operation||null, side:o.side };
+    // 検証は同期処理。成功してから原注文と残数量分の予約額をまとめて更新する。
+    o.limit = limit;
+    if (product === 'cash') o.reserve = o.side === 'buy' ? result.amount : 0;
+    else o.reserveMargin = o.operation === 'open' ? result.margin : 0;
+    o.amendRevision = (o.amendRevision || 0) + 1;
+    if (!Array.isArray(this.orderAmendments)) this.orderAmendments = [];
+    this.orderAmendments.unshift(record);
+    if (this.orderAmendments.length > 200) this.orderAmendments.length = 200;
+    this.rev++;
+    this.events.push({ kind:'amend', text:(product==='credit'?'信用':'現物')+'注文 #'+o.id+'：残り '+o.qty.toLocaleString('ja-JP')+'株の指値を '+o.limit.toLocaleString('ja-JP')+'円に訂正しました。' });
+    // 現在値で条件を満たす場合は、通常の約定処理へそのまま渡す。
+    if (product === 'credit') this.tryFillCredit(o, market, false);
+    else this.tryFill(o, market, false);
+    return { ok:true, order:o, record };
   }
 
   place(spec, market) {
@@ -4805,7 +4979,10 @@ class Account {
     if (rowsSettings[i] && rowsSettings[i].tr.hidden) { $('s-lq').value = ''; filterSettingsStockList(); }
     if (typeof loadRating === 'function' && account) { loadRating(); renderSettings(); }
     if (page === 'settings') drawSettingsMini(true);
-    if (page === 'company') { buildCompanySelect(); renderCompanyInfo(true); }
+    if (page === 'company') { ensureCompanyStock(); buildCompanySelect(); renderCompanyInfo(true); }
+    renderStockContext();
+    if (page === 'stock-news') renderStockNews();
+    if (page === 'stock-hold') renderStockHoldings();
   }
   function updateList() { /* マーケット画面は renderMarket が更新する */ }
   /* ランキング（時価総額・売買代金）を更新する。順位が入れ替わったときだけ、行を並べ替える */
@@ -5019,6 +5196,7 @@ class Account {
     const frac = Math.min(1, Math.max(0, (market.sec - T.AM_OPEN) / (T.PM_CLOSE - T.AM_OPEN)));
     $('tl-mark').style.left = (frac * 100).toFixed(2) + '%';
     updateHeaderAssets();
+    syncStockOrdersManager();
   }
 
   /* ======== 表示する日 ======== */
@@ -5737,7 +5915,7 @@ class Account {
     page = PAGES.indexOf(h) >= 0 ? h : 'market';
     PAGES.forEach((n) => {
       $('page-' + n).hidden = n !== page;
-      $('tab-' + n).setAttribute('aria-current', n === page ? 'page' : 'false');
+      const tab = $('tab-' + n); if (tab) tab.setAttribute('aria-current', n === page ? 'page' : 'false');
     });
     // STEP 2: 非表示画面のCanvas描画バッファを解放。戻る際は既存のresize/描画で復元する。
     const releaseCanvas = (c) => {
@@ -5749,14 +5927,17 @@ class Account {
     if (account) {
       if (page === 'market') renderMarket(true);
       else if (page === 'heatmap') { layoutHeat(); colorHeat(); }
-      else if (page === 'company') { buildCompanySelect(); renderCompanyInfo(true); }
+      else if (page === 'company') { ensureCompanyStock(); buildCompanySelect(); renderCompanyInfo(true); }
       else if (page === 'chart') resize();
       else if (page === 'mypage') renderMyPage();
       else if (page === 'order') renderOrder();
       else if (page === 'history') renderHistory(true);
       else if (page === 'settings') { renderSettings(); updateSettingsStockList(); drawSettingsMini(true); }
       else if (page === 'news') renderNewsPage();
+      else if (page === 'stock-news') renderStockNews();
+      else if (page === 'stock-hold') renderStockHoldings();
     }
+    renderStockContext();
     updateNewsTicker();
     try { window.scrollTo(0, 0); } catch (e) { /* 何もしない */ }
     dirty = true; lastHeat = 0;
@@ -5768,7 +5949,41 @@ class Account {
   let initialCapital = ORDER_LIMITS.capitalDefault;
   let monthlyAutoDeposit = 0;
   const ord = { code: DEFS[0].code, side: 'buy', type: 'market', product: 'cash', creditType: 'system', creditOperation: 'open', positionId: null, confirming: false };
-  const PAGES = ['market', 'chart', 'heatmap', 'company', 'order', 'mypage', 'history', 'news', 'settings'];
+  const ORDER_VIEW_KEY = 'kabu-order-view';
+  let orderView = 'simple', orderExtrasView = null;
+  try { if (localStorage.getItem(ORDER_VIEW_KEY) === 'detail') orderView = 'detail'; } catch (_) {}
+  function renderOrderView() {
+    const advanced = ['stop','ifd','oco'].includes(ord.type);
+    const view = advanced ? 'detail' : orderView;
+    $('page-order').dataset.orderView = view;
+    $('order-view-simple').setAttribute('aria-pressed', String(view === 'simple'));
+    $('order-view-detail').setAttribute('aria-pressed', String(view === 'detail'));
+    $('order-view-simple').setAttribute('aria-disabled', String(advanced));
+    $('order-view-simple').disabled = advanced;
+    const note = advanced ? 'シンプル注文にするには、注文方法を成行か指値に変更してください。' : view === 'simple' ? '逆指値・IFD・OCOは「詳細注文」から選べます。' : '';
+    setText($('order-view-note'), note);
+    $('order-view-note').hidden = !note;
+    if (orderExtrasView !== view) {
+      $('order-extra-info').open = view === 'detail';
+      orderExtrasView = view;
+    }
+    document.querySelectorAll('[data-advanced-order]').forEach((el) => {
+      const type = el.dataset.advancedOrder;
+      const isCredit = ord.product === 'credit', isClose = isCredit && ord.creditOperation === 'close';
+      el.hidden = view === 'simple' || (type === 'ifd' && isCredit && isClose) || (type === 'oco' && isCredit && !isClose);
+    });
+  }
+  function chooseOrderView(view) {
+    if (view === 'simple' && ['stop','ifd','oco'].includes(ord.type)) {
+      toast('注文方法を成行か指値に変更すると、シンプル注文に切り替えられます。');
+      return;
+    }
+    orderView = view;
+    try { localStorage.setItem(ORDER_VIEW_KEY, view); } catch (_) {}
+    ord.confirming = false;
+    renderOrder();
+  }
+  const PAGES = ['market', 'chart', 'heatmap', 'company', 'order', 'mypage', 'history', 'news', 'settings', 'stock-news', 'stock-hold'];
   const yen = (v) => nf0.format(Math.round(v)) + '円';
   const sgn = (v) => (v > 0.5 ? '+' : v < -0.5 ? MINUS : '');
   const syen = (v) => sgn(v) + nf0.format(Math.abs(Math.round(v))) + '円';
@@ -5840,14 +6055,7 @@ class Account {
     listEl.textContent='';
     const frag=document.createDocumentFragment();
     filtered.forEach(item=>{
-      const info=NEWS_CATEGORY_INFO[item.category]||NEWS_CATEGORY_INFO.other;
-      const article=mkEl('article','news-item');
-      const meta=mkEl('div','news-item-meta');
-      meta.appendChild(mkEl('span','news-kind','【'+info.tag+'】'+newsTimeText(item.sec)+(item.important?' ★':'')));
-      meta.appendChild(mkEl('span','news-date',dateLabelForDay(Number(item.day))));
-      article.appendChild(meta);
-      article.appendChild(mkEl('p','news-headline',newsHeadlineText(item)));
-      frag.appendChild(article);
+      frag.appendChild(buildNewsArticle(item));
     });
     listEl.appendChild(frag);
     empty.hidden=filtered.length>0;
@@ -5857,6 +6065,136 @@ class Account {
     $('news-sector').value=newsSectorFilter;
     $('news-important-only').checked=newsImportantOnly;
   }
+  /* ---- 銘柄ごとの情報ナビ・関連ニュース・保有状況 ---- */
+  const STOCK_INFO_ROUTES = { chart:'chart', company:'company', news:'stock-news', hold:'stock-hold' };
+  let stockNewsScope = 'relevant', stockHoldKey = '';
+  let stockHoldCashCells = null, stockHoldCreditRows = [];
+  function selectedInfoStock() { return market && market.stocks[sel]; }
+  function renderStockContext() {
+    const nav = $('stock-info-nav'), k = selectedInfoStock();
+    if (!nav || !k) return;
+    nav.hidden = !Object.values(STOCK_INFO_ROUTES).includes(page);
+    nav.dataset.code = String(k.code);
+    nav.setAttribute('aria-label', k.name+'（'+k.code+'）の情報');
+    setText($('stock-info-name'), k.name); setText($('stock-info-code'), String(k.code));
+    nav.querySelectorAll('[data-stock-view]').forEach(button => button.setAttribute('aria-current', STOCK_INFO_ROUTES[button.dataset.stockView] === page ? 'page' : 'false'));
+  }
+  function ensureCompanyStock() {
+    const k = selectedInfoStock(), industry = $('company-industry'), search = $('company-search');
+    if (!k || !industry || !search) return;
+    const q = search.value.normalize('NFKC').toLowerCase().replace(/\s+/g, '');
+    const hay = (k.name+k.code+k.sector).normalize('NFKC').toLowerCase().replace(/\s+/g, '');
+    if ((industry.value !== 'all' && industry.value !== companyIndustryFor(k)) || (q && !hay.includes(q))) {
+      industry.value = companyIndustryFor(k); search.value = '';
+    }
+  }
+  function openStockInfo(view) {
+    if (!selectedInfoStock() || !STOCK_INFO_ROUTES[view]) return;
+    navTo(STOCK_INFO_ROUTES[view]);
+  }
+  function buildNewsArticle(item, relation = '') {
+    const info = NEWS_CATEGORY_INFO[item.category] || NEWS_CATEGORY_INFO.other;
+    const article = mkEl('article', 'news-item'), meta = mkEl('div', 'news-item-meta');
+    meta.appendChild(mkEl('span', 'news-kind', '【'+info.tag+'】'+newsTimeText(item.sec)+(item.important?' ★':'')));
+    meta.appendChild(mkEl('span', 'news-date', dateLabelForDay(Number(item.day))));
+    if (relation) meta.appendChild(mkEl('span', 'news-relevance', relation));
+    article.appendChild(meta);
+    const code = String(item.code || ''), stock = market.byCode.get(code);
+    if (stock) {
+      const button = mkEl('button', 'news-headline news-stock-link', newsHeadlineText(item));
+      button.type = 'button'; button.dataset.newsStockCode = code;
+      button.setAttribute('aria-label', newsHeadlineText(item)+'。'+stock.name+'のチャートを開く');
+      button.addEventListener('click', () => goChart(code)); article.appendChild(button);
+    } else article.appendChild(mkEl('p', 'news-headline', newsHeadlineText(item)));
+    return article;
+  }
+  function stockNewsRelation(item, k) {
+    if (String(item.code || '') === String(k.code)) return 'この銘柄';
+    // 他社固有のニュースを、同業種というだけでこの銘柄のニュースに混ぜない。
+    if (item.code) return '';
+    const sectors = Array.isArray(item.sectors) ? item.sectors : [];
+    if (sectors.includes(k.sector) || item.sector === k.sector) return '同じ業種';
+    if (item.category === 'macro' && !sectors.length && !item.sector) return '市場全体';
+    return '';
+  }
+  function renderStockNews() {
+    const k = selectedInfoStock(); if (!k) return;
+    renderStockContext();
+    const list = $('stock-news-list'); list.textContent = '';
+    const news = (Array.isArray(market.newsItems) ? market.newsItems : []).slice().sort((a,b)=>(Number(b.day)-Number(a.day))||(Number(b.sec)-Number(a.sec))||(Number(b.id)-Number(a.id)));
+    let count = 0;
+    news.forEach(item => {
+      const relation = stockNewsRelation(item, k);
+      if (!relation || (stockNewsScope === 'direct' && relation !== 'この銘柄')) return;
+      list.appendChild(buildNewsArticle(item, relation)); count++;
+    });
+    setText($('stock-news-count'), count+'件');
+    $('stock-news-empty').hidden = count > 0;
+    setText($('stock-news-empty'), stockNewsScope === 'direct' ? 'この銘柄のニュースはまだありません。' : 'この銘柄・業種・市場に関するニュースはまだありません。');
+    $('stock-news-scope').value = stockNewsScope;
+    setText($('stock-news-note'), stockNewsScope === 'direct' ? k.name+'（'+k.code+'）を対象にしたニュースを表示しています。' : k.name+'（'+k.code+'）のニュースと、業種・市場全体の材料を区別して表示しています。');
+  }
+  function stockMetricCells(container, labels) {
+    const dl = mkEl('dl', 'stock-hold-metrics'), cells = {};
+    labels.forEach(([key,label]) => { const div = mkEl('div'); div.appendChild(mkEl('dt','',label)); const value = mkEl('dd'); div.appendChild(value); dl.appendChild(div); cells[key] = value; });
+    container.appendChild(dl); return cells;
+  }
+  function renderStockHoldings() {
+    const k = selectedInfoStock(); if (!k || !account) return;
+    renderStockContext();
+    const cash = account.portfolio(market).find(p => p.code === String(k.code));
+    const credit = account.creditPositionRows(market).filter(p => p.code === String(k.code));
+    const key = k.code+'|'+(cash ? cash.qty+':'+cash.sellable : '')+'|'+credit.map(p=>p.id+':'+p.qty+':'+p.closeable).join(',');
+    if (key !== stockHoldKey) {
+      stockHoldKey = key; stockHoldCashCells = null; stockHoldCreditRows = [];
+      const cashList = $('stock-hold-cash'), creditList = $('stock-hold-credit'); cashList.textContent = ''; creditList.textContent = '';
+      if (cash) {
+        const card = mkEl('article','stock-hold-item'); card.dataset.code = String(k.code);
+        stockHoldCashCells = stockMetricCells(card, [['qty','保有株数'],['sellable','売却可能'],['avg','平均取得単価'],['price','現在値'],['value','評価額'],['pnl','評価損益']]);
+        const actions = mkEl('div','stock-hold-actions'), sell = mkEl('button','btn stock-cash-sell','現物を売る'); sell.type = 'button'; sell.disabled = cash.sellable <= 0;
+        sell.addEventListener('click',()=>goOrder(String(k.code),'sell','cash')); actions.appendChild(sell); card.appendChild(actions); cashList.appendChild(card);
+      }
+      credit.forEach(p => {
+        const card = mkEl('article','stock-hold-item'); card.dataset.code = String(k.code); card.dataset.positionId = String(p.id);
+        card.appendChild(mkEl('h3','',account.creditTypeText(p.creditType)+'・'+(p.direction==='long'?'買建':'売建')+' #'+p.id));
+        const cells = stockMetricCells(card,[['qty','建株数'],['closeable','返済可能'],['entry','建単価'],['price','現在値'],['value','評価額'],['pnl','評価損益'],['fees','累計金利・貸株料'],['due','返済期限']]);
+        const actions = mkEl('div','stock-hold-actions'), close = mkEl('button','btn','返済注文'); close.type = 'button'; close.dataset.creditClose = String(p.id); close.disabled = p.closeable <= 0;
+        close.addEventListener('click',()=>goCreditClose(p.id)); actions.appendChild(close); card.appendChild(actions); creditList.appendChild(card); stockHoldCreditRows.push({id:p.id,cells});
+      });
+    }
+    $('stock-hold-cash-empty').hidden = !!cash; $('stock-hold-credit-empty').hidden = credit.length > 0;
+    setText($('stock-hold-buy'), cash ? '現物を買い増す' : '現物を買う');
+    if (cash && stockHoldCashCells) {
+      const c = stockHoldCashCells; setText(c.qty,nf0.format(cash.qty)+'株'); setText(c.sellable,nf0.format(cash.sellable)+'株'); setText(c.avg,nfAvg.format(cash.avg)+'円'); setText(c.price,fmtP(cash.price,decFor(cash.price,k.table))+'円'); setText(c.value,yen(cash.value)); setText(c.pnl,arrowOf(cash.pnl)+syen(cash.pnl)+'（'+pctText(cash.pct)+'）'); c.pnl.className = dirOf(cash.pnl);
+    }
+    credit.forEach(p => {
+      const row = stockHoldCreditRows.find(r=>r.id===p.id); if(!row) return; const c = row.cells;
+      setText(c.qty,nf0.format(p.qty)+'株'); setText(c.closeable,nf0.format(p.closeable)+'株'); setText(c.entry,fmtP(p.entryPrice,decFor(p.entryPrice,k.table))+'円'); setText(c.price,fmtP(p.price,decFor(p.price,k.table))+'円'); setText(c.value,yen(p.value)); setText(c.pnl,arrowOf(p.pnl)+syen(p.pnl)); c.pnl.className = dirOf(p.pnl); setText(c.fees,yen(p.accruedFees||0)); setText(c.due,p.dueDay==null?'無期限モデル':'第'+p.dueDay+'営業日');
+    });
+    const pending = account.orders.filter(o=>o.code===String(k.code)).length + account.creditOrders.filter(o=>o.code===String(k.code)).length;
+    setText($('stock-hold-orders'),'注文中 '+pending+'件');
+  }
+  function initStockInfo() {
+    $('stock-info-nav').addEventListener('click',event=>{ const button=event.target.closest('[data-stock-view]'); if(button) openStockInfo(button.dataset.stockView); });
+    $('stock-news-scope').addEventListener('change',event=>{stockNewsScope=event.target.value==='direct'?'direct':'relevant';renderStockNews();});
+    $('stock-hold-buy').addEventListener('click',()=>{const k=selectedInfoStock();if(k)goOrder(String(k.code),'buy','cash');});
+    $('stock-hold-orders').addEventListener('click',()=>{const k=selectedInfoStock();if(k)window.dispatchEvent(new CustomEvent('kabu:open-stock-orders',{detail:{code:String(k.code)}}));});
+    if ('ResizeObserver' in window) {
+      const observer = new ResizeObserver(()=>{
+        const height=$('stock-info-nav').getBoundingClientRect().height, head=document.querySelector('.head');
+        if(height)document.documentElement.style.setProperty('--stock-nav-h',height+'px');
+        if(head)document.documentElement.style.setProperty('--stock-nav-top',head.getBoundingClientRect().height+'px');
+      });
+      observer.observe($('stock-info-nav')); observer.observe(document.querySelector('.head'));
+    }
+    window.addEventListener('kabu:state-restored',()=>{
+      stockHoldKey=''; renderStockContext();
+      if(page==='stock-hold')renderStockHoldings();
+      if(page==='stock-news')renderStockNews();
+    });
+    renderStockContext();
+  }
+
   function initNewsPage() {
     const select=$('news-sector');
     const sectors=[...new Set(DEFS.filter(d=>!d.isEtf).map(d=>d.sector))].sort((a,b)=>a.localeCompare(b,'ja'));
@@ -6393,14 +6731,11 @@ class Account {
     } else {
       $('credit-position').disabled = false;
     }
-    document.querySelectorAll('[data-advanced-order]').forEach((el) => {
-      const typ=el.dataset.advancedOrder;
-      el.hidden = typ==='stop' ? false : typ==='ifd' ? (isCredit && isClose) : (isCredit && !isClose);
-    });
     if (isCredit && ((ord.type==='ifd'&&isClose)||(ord.type==='oco'&&!isClose))) ord.type='market';
     syncOrderRadios();
     const pre = market.closing;
     if (pre && ord.type !== 'market') { ord.type = 'market'; syncOrderRadios(); }
+    renderOrderView();
     document.querySelectorAll('input[name="otype"]').forEach((e) => { e.disabled = pre && e.value !== 'market'; });
     $('o-pre').hidden = !pre;
     $('o-limit-wrap').hidden = ord.type !== 'limit';
@@ -6509,6 +6844,171 @@ class Account {
     drawMini(false);
   }
 
+  /* 銘柄別の注文管理。非表示中は一覧を描画せず、注文変更時だけ更新する。 */
+  const stockOrdersState = { code:null, account:null, market:null, listKey:'', edit:null, opener:null };
+  function stockPendingOrders(code) {
+    return account.orders.filter(o=>o.code===code).map(o=>({product:'cash',order:o})).concat(account.creditOrders.filter(o=>o.code===code).map(o=>({product:'credit',order:o})));
+  }
+  function stockOrderDescription(product, o) {
+    const direction = product === 'cash' ? sideText(o.side) : (o.operation==='open' ? (o.side==='buy'?'買建':'売建') : (o.side==='buy'?'返済買':'返済売'));
+    return (product==='cash'?'現物':'信用・'+account.creditTypeText(o.creditType))+'・'+direction+' #'+o.id;
+  }
+  function closeStockOrdersManager() {
+    const dlg = $('stock-orders-dlg');
+    if (dlg && dlg.open) dlg.close();
+  }
+  function clearStockOrderEdit() {
+    stockOrdersState.edit = null;
+    $('stock-orders-dlg').classList.remove('stock-orders-editing');
+    $('stock-order-edit').hidden = true;
+    $('stock-order-error').textContent = '';
+    $('stock-order-confirm-wrap').hidden = true;
+  }
+  function stockOrderEditCurrent() {
+    const e = stockOrdersState.edit;
+    return !!(e && stockOrdersState.account===account && stockOrdersState.market===market && account.pendingOrder(e.product,e.id)===e.order && account.limitAmendmentKey(e.product,e.id)===e.key);
+  }
+  function staleStockOrderEdit() {
+    const e = stockOrdersState.edit;
+    if (!e || e.stale) return;
+    e.stale = true;
+    e.reviewedPrice = null;
+    $('stock-order-error').textContent = '注文の内容または残数量が変わりました。一覧から選び直してください。';
+    $('stock-order-review').disabled = true;
+    $('stock-order-confirm').disabled = true;
+    $('stock-order-confirm-wrap').hidden = true;
+  }
+  function startStockOrderEdit(product, id, action) {
+    const o = account.pendingOrder(product,id);
+    if (!o) { syncStockOrdersManager(true); setText($('stock-orders-message'),'この注文は注文中ではなくなりました。'); return; }
+    if (action==='amend' && !account.canAmendLimitOrder(o)) { setText($('stock-orders-message'),'価格訂正は通常指値だけに対応しています。'); return; }
+    stockOrdersState.edit = { product, id:o.id, order:o, key:account.limitAmendmentKey(product,o.id), action, reviewedPrice:null };
+    $('stock-orders-dlg').classList.add('stock-orders-editing');
+    $('stock-order-edit').hidden = false;
+    $('stock-order-edit-title').textContent = action==='amend'?'指値を訂正':'注文を取り消す';
+    $('stock-order-edit-summary').textContent = stockOrderDescription(product,o)+' ／ 残り '+nf0.format(o.qty)+'株'+(o.filled?'（約定済み '+nf0.format(o.filled)+'株）':'');
+    $('stock-order-price-wrap').hidden = action!=='amend';
+    $('stock-order-price').value = String(o.limit || '');
+    const k = market.byCode.get(o.code);
+    $('stock-order-price-hint').textContent = k?'制限値幅 '+priceStr(k.lower)+'〜'+priceStr(k.upper)+'円。呼値に合う価格を入力してください。':'';
+    $('stock-order-error').textContent = '';
+    $('stock-order-review').hidden = action!=='amend';
+    $('stock-order-review').disabled = false;
+    $('stock-order-confirm').disabled = false;
+    $('stock-order-confirm-wrap').hidden = action==='amend';
+    $('stock-order-confirm').textContent = action==='amend'?'この指値に訂正する':'この注文を取り消す';
+    $('stock-order-confirm-text').textContent = action==='cancel' ? '上記の未約定分を取り消します。'+(o.ocoGroup?'OCOの関連注文もまとめて取り消します。':'') : '';
+    $('stock-orders-message').textContent = '';
+    (action==='amend'?$('stock-order-price'):$('stock-order-confirm')).focus();
+    $('stock-order-edit').scrollIntoView({block:'nearest'});
+  }
+  function syncStockOrdersManager(force) {
+    if (!account || !market) return;
+    const chartCode = market.stocks[sel].code;
+    const button = $('stock-orders-open');
+    if (button) {
+      setText(button,'注文中 '+stockPendingOrders(chartCode).length+'件');
+      button.setAttribute('aria-label',market.stocks[sel].name+'の注文中一覧を開く');
+    }
+    const dlg = $('stock-orders-dlg');
+    if (!dlg || !dlg.open) return;
+    if (stockOrdersState.account!==account || stockOrdersState.market!==market) {
+      closeStockOrdersManager(); toast('市場・口座が切り替わりました。注文管理を開き直してください。'); return;
+    }
+    if (stockOrdersState.edit && !stockOrderEditCurrent()) staleStockOrderEdit();
+    const key = [stockOrdersState.code,account.rev,market.day,market.phase,market.closing].join('|');
+    if (!force && stockOrdersState.listKey===key) return;
+    stockOrdersState.listKey = key;
+    const focused = document.activeElement;
+    const focusOrder = focused && focused.closest('#stock-orders-list [data-order-action]');
+    const entries = stockPendingOrders(stockOrdersState.code);
+    const list = $('stock-orders-list'); list.textContent = '';
+    entries.forEach(({product,order:o})=>{
+      const li = mkEl('li'); li.dataset.orderProduct=product; li.dataset.orderId=String(o.id);
+      li.appendChild(mkEl('h3','',stockOrderDescription(product,o)));
+      li.appendChild(mkEl('p','',typeText(o)+' ／ 残り '+nf0.format(o.qty)+'株'+(o.filled?'（約定済み '+nf0.format(o.filled)+'株）':'')));
+      li.appendChild(mkEl('p','note',(product==='cash'?orderStatus(o):creditOrderStatus(o)).replace(/（現在値[^）]*）/g,'')));
+      const row = mkEl('div','row');
+      const addAction = (action,label) => { const b=mkEl('button','btn sm',label); b.type='button'; b.dataset.orderAction=action; b.dataset.orderProduct=product; b.dataset.orderId=String(o.id); b.addEventListener('click',()=>startStockOrderEdit(product,o.id,action)); row.appendChild(b); };
+      if (account.canAmendLimitOrder(o)) addAction('amend','指値訂正');
+      else li.appendChild(mkEl('p','stock-order-unsupported','この注文は価格訂正の対象外です。'));
+      addAction('cancel','取消'); li.appendChild(row); list.appendChild(li);
+    });
+    $('stock-orders-empty').hidden = entries.length>0;
+    if (focusOrder) {
+      const next = [...list.querySelectorAll('[data-order-action]')].find(b=>b.dataset.orderProduct===focusOrder.dataset.orderProduct && b.dataset.orderId===focusOrder.dataset.orderId && b.dataset.orderAction===focusOrder.dataset.orderAction);
+      (next || $('stock-orders-title')).focus();
+    }
+  }
+  function openStockOrdersManager(code, edit) {
+    if (!account || !market) return;
+    const k = market.byCode.get(code == null ? market.stocks[sel].code : String(code));
+    if (!k) { toast('注文管理を開く銘柄が見つかりません。',true); return; }
+    const dlg = $('stock-orders-dlg');
+    stockOrdersState.code=k.code; stockOrdersState.account=account; stockOrdersState.market=market; stockOrdersState.listKey='';
+    stockOrdersState.opener = document.activeElement;
+    clearStockOrderEdit();
+    $('stock-orders-title').textContent=k.name+'（'+k.code+'）';
+    $('stock-orders-title').appendChild(mkEl('small','','注文中一覧'));
+    $('stock-orders-message').textContent='';
+    if (!dlg.open) dlg.showModal();
+    document.body.classList.add('stock-orders-open');
+    syncStockOrdersManager(true);
+    $('stock-orders-title').focus();
+    if (edit) startStockOrderEdit(edit.product,edit.id,edit.action);
+  }
+  function renderLimitAmendmentHistory() {
+    const records = Array.isArray(account.orderAmendments)?account.orderAmendments:[];
+    const list=$('order-amendment-history'); list.textContent='';
+    setText($('order-amendment-count'),String(records.length));
+    $('order-amendment-empty').hidden=records.length>0;
+    records.forEach(r=>{
+      const li=mkEl('li');
+      li.textContent=stampText(r.day,r.sec)+' ／ '+(r.product==='credit'?'信用':'現物')+' #'+r.orderId+' '+r.name+'（'+r.code+'） ／ '+sideText(r.side)+' ／ 未約定 '+nf0.format(r.qty)+'株：'+priceStr(r.oldLimit)+'円 → '+priceStr(r.newLimit)+'円'+(r.filled?'（訂正時の約定済み '+nf0.format(r.filled)+'株）':'');
+      list.appendChild(li);
+    });
+  }
+  function initStockOrdersManagement() {
+    const dlg=document.createElement('dialog'); dlg.id='stock-orders-dlg'; dlg.className='stock-orders-dlg';
+    dlg.setAttribute('aria-labelledby','stock-orders-title'); dlg.setAttribute('aria-describedby','stock-orders-help');
+    dlg.innerHTML='<div class="stock-orders-head"><h2 id="stock-orders-title" tabindex="-1">注文中</h2><button class="btn" type="button" id="stock-orders-close">閉じる</button></div><div class="stock-orders-scroll"><p class="note" id="stock-orders-help">通常指値は未約定の残数量の価格を訂正できます。成行・逆指値・IFD・OCOは取消に対応します。</p><p id="stock-orders-message" role="status"></p><ol id="stock-orders-list" class="stock-orders-list"></ol><p class="note" id="stock-orders-empty" hidden>この銘柄の注文中の注文はありません。</p><section id="stock-order-edit" class="stock-order-edit" hidden aria-labelledby="stock-order-edit-title"><h3 id="stock-order-edit-title"></h3><p id="stock-order-edit-summary"></p><div id="stock-order-price-wrap"><label class="lbl" for="stock-order-price">新しい指値（円）</label><input class="num" id="stock-order-price" type="text" inputmode="decimal" autocomplete="off" aria-describedby="stock-order-price-hint stock-order-error"><p class="note" id="stock-order-price-hint"></p></div><p id="stock-order-error" role="alert"></p><button class="btn primary" type="button" id="stock-order-review">訂正内容を確認する</button><div id="stock-order-confirm-wrap" hidden><p id="stock-order-confirm-text"></p><button class="btn primary" type="button" id="stock-order-confirm">この指値に訂正する</button></div><div class="row"><button class="btn" type="button" id="stock-order-back">一覧へ戻る</button></div></section></div>';
+    document.body.appendChild(dlg);
+    $('stock-orders-open').addEventListener('click',()=>openStockOrdersManager());
+    $('stock-orders-close').addEventListener('click',closeStockOrdersManager);
+    dlg.addEventListener('close',()=>{document.body.classList.remove('stock-orders-open'); clearStockOrderEdit(); const opener=stockOrdersState.opener; if(opener && opener.isConnected && opener.getClientRects().length) opener.focus();});
+    $('stock-order-back').addEventListener('click',()=>{clearStockOrderEdit(); $('stock-orders-title').focus();});
+    $('stock-order-price').addEventListener('input',()=>{const e=stockOrdersState.edit;if(e && !stockOrderEditCurrent()){staleStockOrderEdit();return;}if(e)e.reviewedPrice=null;$('stock-order-confirm-wrap').hidden=true;$('stock-order-review').hidden=false;$('stock-order-error').textContent='';});
+    $('stock-order-review').addEventListener('click',()=>{
+      if (!stockOrderEditCurrent()) { staleStockOrderEdit(); return; }
+      const e=stockOrdersState.edit, price=parseNum($('stock-order-price').value);
+      const v=account.validateLimitAmendment(e.product,e.id,price,market,e.key);
+      $('stock-order-error').textContent=v.ok?'':v.errors.join(' ');
+      if (!v.ok) { $('stock-order-confirm-wrap').hidden=true; return; }
+      e.reviewedPrice=price;
+      $('stock-order-review').hidden=true;
+      $('stock-order-confirm-text').textContent='指値 '+priceStr(e.order.limit)+'円 → '+priceStr(price)+'円 ／ 残り '+nf0.format(e.order.qty)+'株を訂正します。約定済みの取引は変わりません。現在値が条件を満たす場合、その場で約定します。';
+      $('stock-order-confirm-wrap').hidden=false;
+      $('stock-order-confirm').focus();
+    });
+    $('stock-order-confirm').addEventListener('click',()=>{
+      if (!stockOrderEditCurrent()) { staleStockOrderEdit(); return; }
+      const e=stockOrdersState.edit;
+      let result;
+      if (e.action==='amend') {
+        if (e.reviewedPrice==null || e.reviewedPrice!==parseNum($('stock-order-price').value)) { $('stock-order-error').textContent='訂正内容を確認してください。'; return; }
+        result=account.amendLimitOrder(e.product,e.id,e.reviewedPrice,market,e.key);
+      } else result={ok:e.product==='credit'?account.cancelCredit(e.id,market):account.cancel(e.id,market)};
+      if (!result.ok) { $('stock-order-error').textContent=(result.errors||['注文を更新できませんでした。一覧から選び直してください。']).join(' '); $('stock-order-confirm-wrap').hidden=true; e.reviewedPrice=null; $('stock-order-review').hidden=e.action!=='amend'; return; }
+      const message=(e.product==='credit'?'信用':'現物')+'注文 #'+e.id+' を'+(e.action==='amend'?'指値訂正しました。':'取り消しました。');
+      clearStockOrderEdit(); histDirty=true; flushEvents(); refreshNow(); scheduleAutoSave(500); syncStockOrdersManager(true);
+      $('stock-orders-message').textContent=message;
+      $('stock-orders-title').focus();
+    });
+    window.addEventListener('kabu:open-stock-orders',event=>openStockOrdersManager(event.detail && event.detail.code));
+    window.addEventListener('hashchange',closeStockOrdersManager);
+    window.addEventListener('kabu:state-restored',closeStockOrdersManager);
+  }
+
   /* ======== 注文・約定履歴 ======== */
   function orderStatus(o) {
     const k = market.byCode.get(o.code), ph = market.phase;
@@ -6570,6 +7070,7 @@ class Account {
       tr.appendChild(mkTd(yen(p * o.qty), 'n'));
       const act = mkEl('td', 'act'); const b = mkEl('button', 'btn sm cancel', '取消'); b.type = 'button';
       b.addEventListener('click', () => { account.cancelCredit(o.id, market); flushEvents(); refreshNow(); renderCreditHistory(); });
+      if (account.canAmendLimitOrder(o)) { const amend=mkEl('button','btn sm','指値訂正'); amend.type='button'; amend.addEventListener('click',()=>openStockOrdersManager(o.code,{product:'credit',id:o.id,action:'amend'})); act.appendChild(amend); }
       act.appendChild(b); tr.appendChild(act); ob.appendChild(tr);
     });
     $('credit-orders-empty').hidden = account.creditOrders.length > 0;
@@ -6602,6 +7103,7 @@ class Account {
 
     if (force || histDirty || account.rev !== histKey) {
       histKey = account.rev; histDirty = false;
+      renderLimitAmendmentHistory();
       // 注文中
       const ob = $('op-body');
       ob.textContent = ''; opCells.length = 0;
@@ -6620,6 +7122,7 @@ class Account {
         const b = mkEl('button', 'btn sm cancel', '取消'); b.type = 'button';
         b.setAttribute('aria-label', '注文 #' + o.id + ' を取り消す');
         b.addEventListener('click', () => { account.cancel(o.id, market); flushEvents(); refreshNow(); renderHistory(true); });
+        if (account.canAmendLimitOrder(o)) { const amend=mkEl('button','btn sm','指値訂正'); amend.type='button'; amend.addEventListener('click',()=>openStockOrdersManager(o.code,{product:'cash',id:o.id,action:'amend'})); act.appendChild(amend); }
         act.appendChild(b); tr.appendChild(act);
         ob.appendChild(tr);
         opCells.push({ o, st });
@@ -6697,6 +7200,9 @@ class Account {
   /* ======== つなぎこみ ======== */
   function initTrading() {
     // 注文入力
+    $('order-view-simple').addEventListener('click', () => chooseOrderView('simple'));
+    $('order-view-detail').addEventListener('click', () => chooseOrderView('detail'));
+    $('order-extra-info').addEventListener('toggle', () => { if ($('order-extra-info').open && mcOpen) drawMini(true); });
     document.querySelectorAll('input[name="product"]').forEach((e) => e.addEventListener('change', () => {
       if (!e.checked) return;
       ord.product = e.value; ord.confirming = false;
@@ -6878,7 +7384,7 @@ class Account {
     return aggregate(k.candles, mcTf);
   }
   function drawMini(force) {
-    if (!mcOpen || page !== 'order') return;                       // 閉じている間は何もしない
+    if (!mcOpen || page !== 'order' || !$('order-extra-info').open) return; // 閉じている間は何もしない
     const t = performance.now();
     if (!force && t - mcLast < 1000) return;
     const k = market.byCode.get(ord.code);
@@ -7168,6 +7674,7 @@ class Account {
   function renderCompanyInfo(force) {
     if(!market||!account||!$('page-company')||$('page-company').hidden) return;
     const k=market.stocks[sel]; if(!k) return;
+    renderStockContext();
     // 選択状態が他ページから変わった場合もドロップダウンを同期
     const select=$('company-select'); if(select && select.value!==String(sel) && [...select.options].some(o=>o.value===String(sel))) select.value=String(sel);
     const pct=(k.price/k.prevClose-1)*100;
@@ -7704,6 +8211,7 @@ class Account {
       market.newsDirty = false;
       updateNewsTicker();
       if (page === 'news') renderNewsPage();
+      if (page === 'stock-news') renderStockNews();
     }
     if (dirty) {
       if (page === 'chart') {
@@ -7724,6 +8232,7 @@ class Account {
         else if (page === 'history') renderHistory(false);
         else if (page === 'settings') { updateSettingsStockList(); drawSettingsMini(false); }
         else if (page === 'company') renderCompanyInfo(false);
+        else if (page === 'stock-hold') renderStockHoldings();
       }
     }
     scheduleFrame();
@@ -8279,9 +8788,11 @@ class Account {
   document.querySelectorAll('input[name="smtf"]').forEach((e) => e.addEventListener('change', () => { if (e.checked) { smTf = e.value === 'W' ? 'W' : 'D'; drawSettingsMini(true); } }));
   buildHeat();
   initTrading();
+  initStockOrdersManagement();
   updateRanks();
   initSettings();
   initNewsPage();
+  initStockInfo();
   updateNewsTicker();
   applySpeedLimits();
   renderSettings();
@@ -8314,7 +8825,7 @@ class Account {
   'use strict';
   const $ = (id) => document.getElementById(id);
   /* どのページを、下部ナビのどの項目として扱うか */
-  const GROUP = { market: 'market', heatmap: 'market', company: 'market', news: 'market', chart: 'chart', order: 'order', mypage: 'mypage', history: 'history', settings: 'menu' };
+  const GROUP = { market: 'market', heatmap: 'market', company: 'market', news: 'market', chart: 'chart', order: 'order', mypage: 'mypage', history: 'history', settings: 'menu', 'stock-news':'market', 'stock-hold':'mypage' };
 
   /* ---- 下部ナビ（6項目）・FAB・「メニュー」シートを生成 ---- */
   const svg = (d) => '<svg viewBox="0 0 24 24" aria-hidden="true">' + d + '</svg>';
@@ -8581,7 +9092,7 @@ class Account {
     const sec = histPage.querySelector(':scope > section[aria-label="' + p[0] + '"]');
     if (sec) { sec.dataset.hv = p[1]; histPage.appendChild(sec); }
   });
-  const canDet = histPage.querySelector('details'); if (canDet) canDet.open = true;
+  const canDet = histPage.querySelector(':scope > section[aria-label="取消・失効した注文"] details'); if (canDet) canDet.open = true;
   function setHv(v, animate) {
     const prev = HV.indexOf(hv), next = HV.indexOf(v);
     if (next < 0) return;
@@ -8640,7 +9151,7 @@ class Account {
     return false;
   }
   let sw = null;
-  const swipeDialogOpen = () => !sheet.hidden || document.body.classList.contains('mk-dlg-open') || document.body.classList.contains('scr-open');
+  const swipeDialogOpen = () => !sheet.hidden || document.body.classList.contains('mk-dlg-open') || document.body.classList.contains('scr-open') || document.body.classList.contains('stock-orders-open');
   document.addEventListener('touchstart', (e) => {
     sw = null;
     if (e.touches.length !== 1 || (SWIPE.indexOf(currentPage()) < 0 && !SUBS[currentPage()]) || swipeDialogOpen()) return;
@@ -8721,7 +9232,7 @@ class Account {
   }
   if ('ResizeObserver' in window) {
     const layoutObserver = new ResizeObserver(queueChartLayout);
-    [head, document.querySelector('.bar'), document.querySelector('.news-ticker'), document.querySelector('.mob-nav')].filter(Boolean).forEach(el => layoutObserver.observe(el));
+    [head, document.querySelector('.bar'), document.querySelector('.news-ticker'), document.querySelector('.mob-nav'), $('stock-info-nav')].filter(Boolean).forEach(el => layoutObserver.observe(el));
   }
   new MutationObserver(queueChartLayout).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   window.addEventListener('resize', queueChartLayout);
@@ -8942,6 +9453,8 @@ class Account {
         const click = (sel) => { const e = document.querySelector(sel); if (e) { e.click(); return true; } return false; };
         const sheetEl = $('mob-sheet');
         if (sheetEl && !sheetEl.hidden) { click('.mob-sheet-back'); guard(); return; }
+        const ordersDlg = $('stock-orders-dlg');
+        if (ordersDlg && ordersDlg.open) { ordersDlg.close(); guard(); return; }
         if (document.body.classList.contains('scr-open')) { click('#co-scr-close'); guard(); return; }
         const dlg = document.querySelector('[id$="-dlg"]:not([hidden]) [id$="-dlg-back"]');
         if (dlg) { dlg.click(); guard(); return; }
