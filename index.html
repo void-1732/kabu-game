@@ -5299,17 +5299,19 @@ class Account {
     const f = raw / p;
     return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p;
   }
-  const MULTI_DAYS = 3;   // 15分足：当日を含めて、直近3営業日を初期表示にする
-  const MULTI_FETCH = 10; // 左へ動かして見られる範囲（営業日）
+  const MULTI_DAYS = 3;   // 1分・5分・15分足：当日を含め直近3営業日。15分足は従来どおり10営業日まで遡れる
+  const MULTI_FETCH = 10; // 15分足だけ左へ動かして見られる最大営業日数
   function getView(k) {
     if (tf === 'D') return { kind: 'day', live: true, bars: dailyBars(k, market.day), rec: k.record(market.day, market.day) };
     if (tf === 'W' || tf === 'M') return { kind: 'day', live: true, bars: aggregateCalendarBars(dailyBars(k, market.day), tf), rec: k.record(market.day, market.day) };
     const rec = viewRec(k);
-    if (tf === 15) {
+    if (tf === 1 || tf === 5 || tf === 15) {
+      // 1分足・5分足は3営業日まで。15分足の従来の10営業日履歴は維持する。
+      const fetchDays = tf === 15 ? MULTI_FETCH : MULTI_DAYS;
       const base = rec.day;
       const hasToday = !!(rec.candles && rec.candles.length);   // 寄付前など、まだ値がない日は数えず、前の営業日で埋める
       // STEP 2: filter→map→slice の中間配列を作らず、必要な営業日だけ逆順で集める。
-      const quota = hasToday ? MULTI_FETCH - 1 : MULTI_FETCH;
+      const quota = hasToday ? fetchDays - 1 : fetchDays;
       const days = [];
       for (let i = k.days.length - 1; i >= 0 && days.length < quota; i--) {
         const d = k.days[i];
@@ -5323,12 +5325,12 @@ class Account {
       for (const d of days) {
         const r = d === base ? rec : k.record(d, market.day);
         if (!r || !r.candles) continue;
-        for (const b of aggregate(r.candles, 15)) {
+        for (const b of aggregate(r.candles, tf)) {
           bars.push(Object.assign({ day: d }, b));
           if (d >= recentStart) autoBars++;
         }
       }
-      return { kind: 'min', live: rec.live, bars, rec, multi: Math.min(MULTI_DAYS, days.length), autoBars };
+      return { kind: 'min', live: rec.live, bars, rec, multi: days.length, autoBars };
     }
     return { kind: 'min', live: rec.live, bars: aggregate(rec.candles, tf), rec };
   }
@@ -5525,8 +5527,8 @@ class Account {
     ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
 
     const slotBase = W < 520 ? 7 : 9;
-    // 複数日の15分足は、全部が入るように1本の幅をせまくする（最小4px）
-    const slotAuto = view.multi && view.autoBars ? Math.max(4, Math.min(slotBase, Math.floor((W - 78) / view.autoBars))) : slotBase;
+    // 15分足は直近3営業日を自動表示。1分・5分足は通常幅のままドラッグで3営業日を参照。
+    const slotAuto = tf === 15 && view.multi && view.autoBars ? Math.max(4, Math.min(slotBase, Math.floor((W - 78) / view.autoBars))) : slotBase;
     const vkey = sel + '|' + tf + '|' + viewDay;
     if (vkey !== viewKey) { viewKey = vkey; panOff = 0; zoomSlot = 0; keepHover = false; hover = null; lastLen = view.bars.length; }
     const slot = zoomSlot ? Math.max(3, Math.min(30, zoomSlot)) : slotAuto;
@@ -5635,7 +5637,7 @@ class Account {
     // 昼休みの区切り（分足のみ）
     if (view.kind === 'min') {
       for (let i = 1; i < cnt; i++) {
-        if (data[i].m - data[i - 1].m > tf) {
+        if (data[i].day === data[i - 1].day && data[i].m - data[i - 1].m > tf) {
           const x = Math.round((xOf(i - 1) + xOf(i)) / 2) + 0.5;
           ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = muted;
           ctx.beginPath(); ctx.moveTo(x, T0); ctx.lineTo(x, volBase); ctx.stroke(); ctx.restore();
@@ -5699,7 +5701,7 @@ class Account {
     const phs = market.phase;
     let msg = null;
     if (view.kind === 'day') msg = tf === 'W' ? '週足（1本＝1週間）' : tf === 'M' ? '月足（1本＝1か月）' : '日足（1本＝1営業日）';
-    else if (view.multi > 1) msg = '15分足・直近' + view.multi + '営業日' + (view.live ? '' : '（〜' + dateLabelForDay(view.rec.day) + '）') + '（左右にドラッグで過去へ）';
+    else if (view.multi > 1) msg = tf + '分足・直近' + Math.min(MULTI_DAYS, view.multi) + '営業日' + (view.live ? '' : '（〜' + dateLabelForDay(view.rec.day) + '）') + '（左右にドラッグで過去へ）';
     else if (!view.live) msg = dateLabelForDay(view.rec.day) + 'の記録（確定）';
     else if (phs === 'lunch') msg = '昼休み（12:30に後場が始まります）';
     else if (phs === 'closed') msg = '大引け（15:30）';
